@@ -1,0 +1,1004 @@
+---
+title: "MSL upgrade"
+author: "Victor Chaumeau"
+date: "2024-05-01"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(cache = TRUE, cache.comments = FALSE, echo = FALSE,
+                      include = TRUE, cache.lazy = FALSE)
+
+# Load packages
+library(data.table)
+library(MALDIquant)
+library(MALDIquantForeign)
+
+# Load custom functions
+source("code/cci_algorithm.R")
+source("code/function_reproducibility.R")
+
+# Declare environment variables
+
+# assess the reproducibility and specificity of mass spectra
+ASSESS_REPRODUCIBILITY = TRUE 
+# make the reference mass spectra library
+MAKE_REFMSL = TRUE
+# perform bank-to-bank analysis
+BANK_TO_BANK = TRUE
+# perform panel-to-bank analysis
+PANEL_TO_BANK = TRUE
+# run simulation experiments
+RUN_SIM = TRUE
+
+```
+
+# Session information
+
+```{r session_info}
+
+sessionInfo()
+
+```
+
+```{r import_dataset}
+
+# Sample information
+load("Rdata/taxonomy.Rdata")
+
+# Spectra information
+load("Rdata/metadata.Rdata")
+
+# CCI analysis
+load("Rdata/out_cci.Rdata")
+
+```
+
+# Reference MSL upgrade
+
+## Reproducibility assesment
+
+```{r intra_specimen_reproducibility}
+
+f_name = "Rdata/reproducibility_intra_upgraded.Rdata"
+
+if (ASSESS_REPRODUCIBILITY | !file.exists(f_name)) {
+  
+  # Keep all data in the analysis
+  
+  ss_cci = out_cci
+  
+  # Subset comparisons of technical replicates
+  
+  dta_self = ss_cci[ss_cci$sample.in == ss_cci$sample.out, ]
+  
+  # Assess spectra reproducibility
+  
+  reproducibility_intra = cci.reproducibility(dta_self)
+  
+  # Add sample information to output
+  
+  reproducibility_intra$sample = metadata$sample.id[match(reproducibility_intra$spectrum, metadata$spectrum.id)]
+  reproducibility_intra$species = taxonomy$reference.identification.result[match(reproducibility_intra$sample, taxonomy$sample.id)]
+  
+  # Look at the distribution of CCI values and flag outliers as excluded spectra
+  
+  hist(reproducibility_intra$median.cci)
+  reproducibility_intra$exclude = ifelse(reproducibility_intra$median.cci < -Inf, T, F)
+  summary(reproducibility_intra$exclude)
+  
+  # Save output
+  
+  save(reproducibility_intra, file = f_name)
+  
+} else {
+  
+  load(f_name)
+  
+}
+
+```
+
+```{r inter_specimen_reproducibility}
+
+f_name = "Rdata/reproducibility_inter_upgraded.Rdata"
+
+if (ASSESS_REPRODUCIBILITY | !file.exists(f_name)) {
+  
+  # Keep all data in the analysis
+  
+  ss_cci = out_cci
+  
+  # Subset comparisons of specimens of the same species, excluding comparisons of technical replicates
+  
+  dta_spp = ss_cci[(ss_cci$species.in == ss_cci$species.out) & (ss_cci$sample.in != ss_cci$sample.out), ]
+  
+  # Assess inter-specimen reproducibility
+  
+  reproducibility_inter = cci.reproducibility(dta_spp)
+  
+  # Add sample information
+  
+  reproducibility_inter$sample = metadata$sample.id[match(reproducibility_inter$spectrum, metadata$spectrum.id)]
+  reproducibility_inter$species = taxonomy$reference.identification.result[match(reproducibility_inter$sample, taxonomy$sample.id)]
+  
+  # Look at the distribution of cci values and tag outliers as excluded spectra
+  
+  hist(reproducibility_inter$median.cci)
+  reproducibility_inter$exclude = ifelse(reproducibility_inter$median.cci < -Inf, T, F)
+  summary(reproducibility_inter$exclude)
+  
+  # Save output
+  
+  save(reproducibility_inter, file = f_name)
+  
+} else {
+  
+  load(f_name)
+  
+}
+
+```
+
+```{r specificity}
+
+f_name = "Rdata/reproducibility_unref_upgraded.Rdata"
+
+if (ASSESS_REPRODUCIBILITY | !file.exists(f_name)) {
+  
+  # Keep all data in the analysis
+  
+  ss_cci = out_cci
+  
+  # Subset comparisons of specimens of different species only
+  
+  dta_unref = ss_cci[(ss_cci$species.in != ss_cci$species.out), ]
+  
+  # Assess specificity
+  
+  reproducibility_unref = cci.reproducibility(dta_unref)
+  
+  # Add sample information
+  
+  reproducibility_unref$sample = metadata$sample.id[match(reproducibility_unref$spectrum, metadata$spectrum.id)]
+  reproducibility_unref$species = taxonomy$reference.identification.result[match(reproducibility_unref$sample, taxonomy$sample.id)]
+  
+  # Save output
+  
+  save(reproducibility_unref, file = f_name)
+  
+} else {
+  
+  load(f_name)
+  
+}
+
+```
+
+## Make the reference MSL
+
+```{r reference_msl_upgrade}
+
+f_name = "Rdata/reference_msl_upgraded.RDS"
+
+if(MAKE_REFMSL | !file.exists(f_name)) {
+  
+  # List all mass spectra
+  
+  ls_spectra_included = metadata$spectrum.id
+  
+  # Load the msl of processed spectra
+  
+  msl = readRDS("Rdata/msl_processed.RDS")
+  
+  # Subset the msl object
+  
+  msl = msl[ls_spectra_included]
+  
+  # Save the reference MSL
+  
+  saveRDS(msl, file = f_name)
+  
+} else {
+  
+  msl = readRDS(f_name)
+  
+}
+
+```
+
+## Bank-to-bank analysis
+
+### Including self-matches
+
+```{r match_ref_self}
+
+f_name = "Rdata/match_ref_self_upgraded.Rdata"
+
+if(BANK_TO_BANK | !file.exists(f_name)) {
+  
+  # List spectra included in the reference MSL
+  
+  ls = metadata$spectrum.id
+  
+  # Make a data frame of all pairwise comparisons
+  
+  output = expand.grid(ls, ls)
+  
+  names(output) = c("spectrum.in", "spectrum.out")
+  
+  output$spectrum.in = as.character(output$spectrum.in)
+  output$spectrum.out = as.character(output$spectrum.out)
+  
+  # Add sample information
+  
+  output$sample.in = metadata$sample.id[match(output$spectrum.in, metadata$spectrum.id)]
+  output$sample.out = metadata$sample.id[match(output$spectrum.out, metadata$spectrum.id)]
+  
+  output$species.in = taxonomy$reference.identification.result[match(output$sample.in, taxonomy$sample.id)]
+  output$species.out = taxonomy$reference.identification.result[match(output$sample.out, taxonomy$sample.id)]
+  
+  # Remove comparisons of the same spectrum
+  
+  output = output[output$spectrum.in != output$spectrum.out, ]
+  
+  # Add CCI value
+  
+  output$cci  = NA
+  
+  out_cci$tag = paste(out_cci$spectrum.in, out_cci$spectrum.out)
+  output$tag = paste(output$spectrum.in, output$spectrum.out)
+  output$cci[is.na(output$cci)] = out_cci$cci[match(output$tag[is.na(output$cci)], out_cci$tag)]
+  output$tag = paste(output$spectrum.out, output$spectrum.in)
+  output$cci[is.na(output$cci)] = out_cci$cci[match(output$tag[is.na(output$cci)], out_cci$tag)]
+  
+  # Create an empty data frame to store the results
+  
+  df = data.frame()
+  
+  # Loop over all spectrum in the list
+  
+  for(i in ls) {
+    
+    # Subset comparisons of the spectrum of interest
+    
+    temp = output[output$spectrum.in == i, ]
+    
+    # Select the match with the highest CCI value
+    
+    temp = temp[order(temp$cci, decreasing = T), ]
+    temp = temp[1,]
+    
+    # Append the result to the empty data frame
+    
+    df = rbind(df, temp)
+    
+  }
+  
+  # Add the log10CCI value
+  
+  df$cci_log = log10(df$cci)
+  
+  # Save the output
+  
+  match_ref_self = df
+  save(match_ref_self, file = f_name)
+  
+} else {
+  
+  load(f_name)
+  
+}
+
+```
+
+### Excluding self-matches
+
+```{r match_ref_noself}
+
+f_name = "Rdata/match_ref_noself_upgraded.Rdata"
+
+if(BANK_TO_BANK | !file.exists(f_name)) {
+  
+  # List spectra included in the reference MSL
+  
+  ls = metadata$spectrum.id
+  
+  # Make a data frame of all pairwise comparisons
+  
+  output = expand.grid(ls, ls)
+  
+  names(output) = c("spectrum.in", "spectrum.out")
+  
+  output$spectrum.in = as.character(output$spectrum.in)
+  output$spectrum.out = as.character(output$spectrum.out)
+  
+  # Add sample information
+  
+  output$sample.in = metadata$sample.id[match(output$spectrum.in, metadata$spectrum.id)]
+  output$sample.out = metadata$sample.id[match(output$spectrum.out, metadata$spectrum.id)]
+  
+  output$species.in = taxonomy$reference.identification.result[match(output$sample.in, taxonomy$sample.id)]
+  output$species.out = taxonomy$reference.identification.result[match(output$sample.out, taxonomy$sample.id)]
+  
+  # Remove comparisons of the same specimen
+  
+  output = output[output$sample.in != output$sample.out, ]
+  
+  # Add CCI value
+  
+  output$cci  = NA
+  
+  out_cci$tag = paste(out_cci$spectrum.in, out_cci$spectrum.out)
+  output$tag = paste(output$spectrum.in, output$spectrum.out)
+  output$cci[is.na(output$cci)] = out_cci$cci[match(output$tag[is.na(output$cci)], out_cci$tag)]
+  output$tag = paste(output$spectrum.out, output$spectrum.in)
+  output$cci[is.na(output$cci)] = out_cci$cci[match(output$tag[is.na(output$cci)], out_cci$tag)]
+  
+  # Create an empty data frame to store the results
+  
+  df = data.frame()
+  
+  # Loop over all spectrum in the list
+  
+  for(i in ls) {
+    
+    # Subset comparisons of the spectrum of interest
+    
+    temp = output[output$spectrum.in == i, ]
+    
+    # Select the match with the highest CCI value
+    
+    temp = temp[order(temp$cci, decreasing = T), ]
+    temp = temp[1,]
+    
+    # Append the result to the empty data frame
+    
+    df = rbind(df, temp)
+    
+  }
+  
+  # Add the log10CCI value
+  
+  df$cci_log = log10(df$cci)
+  
+  # Save the output
+  
+  match_ref_noself = df
+  save(match_ref_noself, file = f_name)
+  
+} else {
+  
+  load(f_name)
+  
+}
+
+```
+
+```{r match_ref_unref}
+
+f_name = "Rdata/match_ref_unref_upgraded.Rdata"
+
+if(BANK_TO_BANK | !file.exists(f_name)) {
+  
+  # List spectra included in the reference MSL
+  
+  ls = metadata$spectrum.id
+  
+  # Make a data frame of all pairwise comparisons
+  
+  output = expand.grid(ls, ls)
+  
+  names(output) = c("spectrum.in", "spectrum.out")
+  
+  output$spectrum.in = as.character(output$spectrum.in)
+  output$spectrum.out = as.character(output$spectrum.out)
+  
+  # Add sample information
+  
+  output$sample.in = metadata$sample.id[match(output$spectrum.in, metadata$spectrum.id)]
+  output$sample.out = metadata$sample.id[match(output$spectrum.out, metadata$spectrum.id)]
+  
+  output$species.in = taxonomy$reference.identification.result[match(output$sample.in, taxonomy$sample.id)]
+  output$species.out = taxonomy$reference.identification.result[match(output$sample.out, taxonomy$sample.id)]
+  
+  # Remove comparisons of the same species
+  
+  output = output[output$species.in != output$species.out, ]
+  
+  # Add CCI value
+  
+  output$cci  = NA
+  
+  out_cci$tag = paste(out_cci$spectrum.in, out_cci$spectrum.out)
+  output$tag = paste(output$spectrum.in, output$spectrum.out)
+  output$cci[is.na(output$cci)] = out_cci$cci[match(output$tag[is.na(output$cci)], out_cci$tag)]
+  output$tag = paste(output$spectrum.out, output$spectrum.in)
+  output$cci[is.na(output$cci)] = out_cci$cci[match(output$tag[is.na(output$cci)], out_cci$tag)]
+  
+  # Create an empty data frame to store the results
+  
+  df = data.frame()
+  
+  # Loop over all spectrum in the list
+  
+  for(i in ls) {
+    
+    # Subset comparisons of the spectrum of interest
+    
+    temp = output[output$spectrum.in == i, ]
+    
+    # Select the match with the highest CCI value
+    
+    temp = temp[order(temp$cci, decreasing = T), ]
+    temp = temp[1,]
+    
+    # Append the result to the empty data frame
+    
+    df = rbind(df, temp)
+    
+  }
+  
+  # Add the log10CCI value
+  
+  df$cci_log = log10(df$cci)
+  
+  # Save the output
+  
+  match_ref_unref = df
+  save(match_ref_unref, file = f_name)
+  
+} else {
+  
+  load(f_name)
+  
+}
+
+```
+
+## Simulation experiment
+
+```{r simulation_experiment}
+
+f_name = "Rdata/out_sim_v2b_upgraded.Rdata"
+
+if (RUN_SIM | !file.exists(f_name)) {
+  
+  # List samples included in the validation panel
+  
+  ls_samples_val = sort(unique(metadata$sample.id))
+  
+  # Declare the number of trials and spots for the simulation
+  
+  n_trials = 1000
+  n_spots = 9
+  
+  # Create an emtpyt data frame to store the results
+  
+  out_sim = data.frame()
+  
+  # Loop over the number of spots
+  
+  for (i in 1:n_spots){
+    
+    df1 = data.frame()
+    
+    # Loop over the number of trials
+    
+    for(j in 1:n_trials) {
+      
+      # Set new random seed for each trial
+      
+      set.seed(j)
+      
+      # Create an empty object to store the randomly selected spectra
+      
+      ls_spectra_sim = NULL
+      
+      # Loop over the list of samples included in the validation panel
+      
+      for(k in ls_samples_val) {
+        
+        # Select at random a specified number of spots for that sample
+        
+        temp = sample(metadata$spectrum.id[metadata$sample.id == k], i, replace = F)
+        
+        # Store the results in ls_spectra_sim
+        
+        ls_spectra_sim = c(ls_spectra_sim, temp)
+        
+      }
+      
+      # Create an empty data frame to store the results
+      
+      df2 = data.frame()
+      
+      # Loop over the list of samples included in the validation panel
+      
+      for (l in ls_samples_val) {
+        
+        # Select the matches of the selected spots
+        
+        temp = match_ref_noself[match_ref_noself$sample.in == l & match_ref_noself$spectrum.in %in% ls_spectra_sim, ]
+        
+        # Keep only the best match
+        
+        temp = temp[order(temp$cci,decreasing = T), ]
+        temp = temp[1,]
+        
+        # Store the result in df2
+        
+        df2 = rbind(df2, temp)
+        
+      }
+      
+      # Add the trial and spot number
+      
+      df2$trial = j
+      df2$spots = i
+      
+      # Store the result in df1
+      
+      df1 = rbind(df1, df2)
+      
+    }
+    
+    # Store the result in out_sim
+    
+    out_sim = rbind(out_sim, df1)
+    
+  }
+  
+  # Transform the CCI value on the log scale
+  
+  out_sim$cci_log = log10(out_sim$cci)
+  
+  # Save the output
+  
+  out_sim_v2b = out_sim
+  save(out_sim_v2b, file = f_name)
+  
+} else {
+  
+  load(f_name)
+  
+}
+
+```
+
+```{r simulation_experiment_unref}
+
+f_name = "Rdata/out_sim_unref_v2b_upgraded.Rdata"
+
+if (RUN_SIM | !file.exists(f_name)) {
+  
+  # List samples included in the validation panel
+  
+  ls_samples_val = sort(unique(metadata$sample.id))
+  
+  # Declare the number of trials and spots for the simulation
+  
+  n_trials = 1000
+  n_spots = 9
+  
+  # Create an emtpyt data frame to store the results
+  
+  out_sim = data.frame()
+  
+  # Loop over the number of spots
+  
+  for (i in 1:n_spots){
+    
+    df1 = data.frame()
+    
+    # Loop over the number of trials
+    
+    for(j in 1:n_trials) {
+      
+      # Set new random seed for each trial
+      
+      set.seed(j)
+      
+      # Create an empty object to store the randomly selected spectra
+      
+      ls_spectra_sim = NULL
+      
+      # Loop over the list of samples included in the validation panel
+      
+      for(k in ls_samples_val) {
+        
+        # Select at random a specified number of spots for that sample
+        
+        temp = sample(metadata$spectrum.id[metadata$sample.id == k], i, replace = F)
+        
+        # Store the results in ls_spectra_sim
+        
+        ls_spectra_sim = c(ls_spectra_sim, temp)
+        
+      }
+      
+      # Create an empty data frame to store the results
+      
+      df2 = data.frame()
+      
+      # Loop over the list of samples included in the validation panel
+      
+      for (l in ls_samples_val) {
+        
+        # Select the matches of the selected spots
+        
+        temp = match_ref_unref[match_ref_unref$sample.in == l & match_ref_unref$spectrum.in %in% ls_spectra_sim, ]
+        
+        # Keep only the best match
+        
+        temp = temp[order(temp$cci,decreasing = T), ]
+        temp = temp[1,]
+        
+        # Store the result in df2
+        
+        df2 = rbind(df2, temp)
+        
+      }
+      
+      # Add the trial and spot number
+      
+      df2$trial = j
+      df2$spots = i
+      
+      # Store the result in df1
+      
+      df1 = rbind(df1, df2)
+      
+    }
+    
+    # Store the result in out_sim
+    
+    out_sim = rbind(out_sim, df1)
+    
+  }
+  
+  # Transform the CCI value on the log scale
+  
+  out_sim$cci_log = log10(out_sim$cci)
+  
+  # Save the output
+  
+  out_sim_unref_v2b = out_sim
+  save(out_sim_unref_v2b, file = f_name)
+  
+} else {
+  
+  load(f_name)
+  
+}
+
+```
+
+# Database upgrade
+
+```{r}
+
+n.samples = nrow(taxonomy[!is.na(taxonomy$reference.identification.result), ])
+n.spectra = nrow(metadata)
+ls.species = sort(unique(taxonomy$reference.identification.result))
+n.species = length(ls.species)
+n.species.sl = length(ls.species[grepl('s\\.l\\.|\\/', ls.species)])
+n.species.ss = length(ls.species[!grepl('s\\.l\\.|\\/', ls.species)])
+
+sprintf('The upgraded database was composed of %i spectra of %i specimens including %i sensu stricto species and %i sibling species pairs or complexes.', n.spectra, n.samples, n.species.ss, n.species.sl)
+
+```
+
+```{r}
+
+# Concordant matches
+
+df = match_ref_noself
+N = nrow(df)
+df = df[df$species.in == df$species.out, ]
+n = nrow(df)
+p = n/N*100
+
+m = quantile(df$cci_log, .5)
+q25 = quantile(df$cci_log, .25)
+q75 = quantile(df$cci_log, .75)
+
+sprintf('%i/%i (%.1f%%) of the spectra included in the reference database matched with the same species (median log10CCI: %.1f, IQR: %.1f to %.1f)', n, N, p, m, q25, q75)
+
+# Discordant matches
+
+df = match_ref_noself
+N = nrow(df)
+df = df[df$species.in != df$species.out, ]
+n = nrow(df)
+p = n/N*100
+
+sprintf('%i/%i (%.1f%%) of the spectra included in the reference database matched with another species', n, N, p)
+
+ls = table(taxonomy$reference.identification.result)
+ls = names(ls[ls == 1])
+
+df = match_ref_noself
+df = df[df$species.in != df$species.out, ]
+df1 = df[df$species.in %in% ls, ]
+df2 = df[!df$species.in %in% ls, ]
+
+n1 = nrow(df1)
+m1 = quantile(df1$cci_log, .5)
+q25.1 = quantile(df1$cci_log, .25)
+q75.1 = quantile(df1$cci_log, .75)
+
+n2 = nrow(df2)
+m2 = quantile(df2$cci_log, .5)
+q25.2 = quantile(df2$cci_log, .25)
+q75.2 = quantile(df2$cci_log, .75)
+
+sprintf('Among the mismatches, %i were spectra of species represented by only one specimen and thus not included in the queried dataset because self-matching was disabled (median log10CCI: %.1f, IQR: %.1f to %.1f), and %i were true cross-matches between two referenced species (median log10CCI: %.1f, IQR: %.1f to %.1f).', n1, m1, q25.1, q75.1, n2, m2, q25.2, q75.2)
+
+```
+
+```{r tableS5_discordant_matches_upgraded}
+
+#
+
+ls = table(taxonomy$reference.identification.result)
+ls = names(ls[ls == 1])
+
+df = match_ref_noself
+df = df[df$species.in != df$species.out, ]
+df1 = df[df$species.in %in% ls, ]
+df2 = df[!df$species.in %in% ls, ]
+
+df1$matching.category = 'unreferenced species'
+df2$matching.category = 'true cross-match'
+df = rbind(df1, df2)
+
+df$tag = NULL
+df$cci = NULL
+names(df)[names(df) == 'cci_log'] = 'log10.cci'
+
+df = df[order(df$matching.category, df$species.in, df$sample.in, df$species.out, df$sample.out), ]
+
+write.csv(df, file = 'tables/tableS5_discordant_matches_upgraded.csv', row.names = F)
+
+```
+
+
+```{r}
+
+# Declare input data
+
+out_sim = out_sim_v2b
+
+# List unreferenced species
+
+temp = table(taxonomy$reference.identification.result)
+ls_taxa_unref = names(temp[temp == 1])
+
+# Declare the range of threshold values to be assessed
+
+ls_threshold = seq(-20, 0, 0.5)
+
+# Make an empty data frame to store the results
+
+output = data.frame()
+
+# Loop over threshold values
+
+for (i in ls_threshold) {
+  
+  # True positive (concordant matches with CCI above the threshold)
+  
+  out_sim$result[out_sim$species.in == out_sim$species.out & out_sim$cci_log >= i] = "TP"
+  
+  # False positive (mismatches with CCI above the threshold)
+  
+  out_sim$result[out_sim$species.in != out_sim$species.out & out_sim$cci_log >= i] = "FP"
+  
+  # True negative (species not referenced in the MSL with CCI below the threshold)
+  
+  out_sim$result[(out_sim$species.in %in% ls_taxa_unref) & out_sim$cci_log < i] = "TN"
+  
+  # False negative (species referenced in the MSL with CCI below the threshold)
+  
+  out_sim$result[!(out_sim$species.in %in% ls_taxa_unref) & out_sim$cci_log < i] = "FN"
+  
+  #
+  
+  out_sim$result[out_sim$sample.in == "METF2_0036468" & out_sim$species.out == "An. interruptus" & out_sim$cci_log >= i] = "TP"
+  
+  out_sim$result[out_sim$sample.in == "METF2_0036468" & out_sim$species.out != "An. interruptus" & out_sim$cci_log >= i] = "FP"
+  
+  out_sim$result[out_sim$sample.in == "METF2_0036468" & out_sim$cci_log < i] = "FN"
+  
+  # Sensitivity
+  
+  res = tapply(out_sim$result, list(out_sim$spots, out_sim$trial), FUN = function(x)(length(x[x=="TP"]) / length(x[x=="TP" | x == "FN"])))
+  sensitivity = apply(res, 1 , median)
+  sensitivity_lower = apply(res, 1 , quantile, probs = 0.025)
+  sensitivity_upper = apply(res, 1 , quantile, probs = 0.975)
+  
+  # Positive predicitve value
+  
+  res = tapply(out_sim$result, list(out_sim$spots, out_sim$trial), FUN = function(x)(length(x[x=="TP"]) / length(x[x=="TP" | x == "FP"])))
+  ppv = apply(res, 1 , median, na.rm=T)
+  ppv_lower = apply(res, 1 , quantile, probs = 0.025, na.rm=T)
+  ppv_upper = apply(res, 1 , quantile, probs = 0.975, na.rm=T)
+  
+  # Accuracy
+  
+  res = tapply(out_sim$result, list(out_sim$spots, out_sim$trial), FUN = function(x)(length(x[x=="TN"|x=="TP"]) / length(x)))
+  accuracy = apply(res, 1 , median, na.rm=T)
+  accuracy_lower = apply(res, 1 , quantile, probs = 0.025)
+  accuracy_upper = apply(res, 1 , quantile, probs = 0.975)
+  
+  # Combine the results
+  
+  df = cbind(rep(i, 9), 1:9, sensitivity, sensitivity_lower, sensitivity_upper, ppv, ppv_lower, ppv_upper, accuracy, accuracy_lower, accuracy_upper)
+  
+  # Add results to output table
+  
+  output = rbind(output, df)
+  
+}
+
+# Rename variables
+
+names(output) = c("threshold", "spot", "sensitivity", "sensitivity.lower", "sensitivity.upper", "ppv", "ppv.lower", "ppv.upper", "accuracy", "accuracy.lower", "accuracy.upper")
+
+# Store output
+
+output1 = output
+
+#############
+
+# Declare input data
+
+out_sim = out_sim_unref_v2b
+
+# Make an empty data frame to store the results
+
+output = data.frame()
+
+# Loop over threshold values
+
+for (i in ls_threshold) {
+  
+  # False positive (mismatches with CCI above the threshold)
+  
+  out_sim$result[out_sim$cci_log >= i] = "FP"
+  
+  # True negative (species not referenced in the MSL with CCI below the threshold)
+  
+  out_sim$result[out_sim$cci_log < i] = "TN"
+  
+  # Specificity
+  
+  res = tapply(out_sim$result, list(out_sim$spots, out_sim$trial), FUN = function(x)(length(x[x=="TN"]) / length(x[x=="TN" | x == "FP"])))
+  specificity = apply(res, 1 , median)
+  specificity_lower = apply(res, 1 , quantile, probs = 0.025)
+  specificity_upper = apply(res, 1 , quantile, probs = 0.975)
+  
+  # Accuracy
+  
+  res = tapply(out_sim$result, list(out_sim$spots, out_sim$trial), FUN = function(x)(length(x[x=="TN"|x=="TP"]) / length(x)))
+  accuracy = apply(res, 1 , median, na.rm=T)
+  accuracy_lower = apply(res, 1 , quantile, probs = 0.025)
+  accuracy_upper = apply(res, 1 , quantile, probs = 0.975)
+  
+  # False positive rate
+  
+  res = tapply(out_sim$result, list(out_sim$spots, out_sim$trial), FUN = function(x)(length(x[x=="FP"]) / length(x[x=="FP" | x == "TN"])))
+  fpr = apply(res, 1 , median)
+  fpr_lower = apply(res, 1 , quantile, probs = 0.025)
+  fpr_upper = apply(res, 1 , quantile, probs = 0.975)
+  
+  # Combine the results
+  
+  df = cbind(rep(i, 9), 1:9, specificity, specificity_lower, specificity_upper, accuracy, accuracy_lower, accuracy_upper, fpr, fpr_lower, fpr_upper)
+  
+  # Add results to output table
+  
+  output = rbind(output, df)
+  
+}
+
+# Rename variables
+
+names(output) = c("threshold", "spot", "specificity", "specificity.lower",  "specificity.upper", "accuracy", "accuracy.lower", "accuracy.upper", "fpr", "fpr.lower", "fpr.upper")
+
+# Store output
+
+output2 = output
+
+#################
+
+output = data.frame(
+  
+  threshold = output1$threshold,
+  spot = output1$spot,
+  
+  sensitivity = output1$sensitivity,
+  sensitivity.lower = output1$sensitivity.lower,
+  sensitivity.upper = output1$sensitivity.upper,
+  
+  specificity = output2$specificity,
+  specificity.lower = output2$specificity.lower,
+  specificity.upper = output2$specificity.upper,
+  
+  ppv = output1$ppv,
+  ppv.lower = output1$ppv.lower,
+  ppv.upper = output1$ppv.upper,
+  
+  accuracy = output1$accuracy,
+  accuracy.lower = output1$accuracy.lower,
+  accuracy.upper = output1$accuracy.upper,
+  
+  fpr = output2$fpr,
+  fpr.lower = output2$fpr.lower,
+  fpr.upper = output2$fpr.upper
+  
+)
+
+```
+
+```{r tableS6_identification_performance_upgraded}
+
+# Reformat the results of performance evaluation at varying threshold
+
+df = output
+
+# Sensitivity
+
+df$sensitivity2 = paste0(round(df$sensitivity, 2), " (", round(df$sensitivity.lower, 2), "; ", round(df$sensitivity.upper, 2), ")")
+
+# Specificity
+
+df$specificity2 = paste0(round(df$specificity, 2), " (", round(df$specificity.lower, 2), "; ", round(df$specificity.upper, 2), ")")
+
+# Predictive positive value
+
+df$ppv2 = paste0(round(df$ppv, 2), " (", round(df$ppv.lower, 2), "; ", round(df$ppv.upper, 2), ")")
+
+# Accuracy
+
+df$accuracy2 = paste0(round(df$accuracy, 2), " (", round(df$accuracy.lower, 2), "; ", round(df$accuracy.upper, 2), ")")
+
+# Select varibales
+
+varsel = c("threshold", "spot", "sensitivity2", "specificity2", "ppv2", "accuracy2")
+df = df[,varsel]
+
+# Save the formatted results
+
+write.csv(df, file = "tables/tableS6_identification_performance_upgraded.csv", row.names = F)
+
+# Subset selected threshold values and numbers of spots 
+
+df = df[(df$threshold == -14 & df$spot == 1) |
+          (df$threshold == -14 & df$spot == 2) |
+          (df$threshold == -14 & df$spot == 4) |
+          (df$threshold == -14 & df$spot == 9) |
+          (df$threshold == -13 & df$spot == 1) |
+          (df$threshold == -13 & df$spot == 2) |
+          (df$threshold == -13 & df$spot == 4) |
+          (df$threshold == -13 & df$spot == 9) |
+          (df$threshold == -12 & df$spot == 1) |
+          (df$threshold == -12 & df$spot == 2) |
+          (df$threshold == -12 & df$spot == 4) |
+          (df$threshold == -12 & df$spot == 9) |
+          (df$threshold == -11 & df$spot == 1) |
+          (df$threshold == -11 & df$spot == 2) |
+          (df$threshold == -11 & df$spot == 4) |
+          (df$threshold == -11 & df$spot == 9) |
+          (df$threshold == -10 & df$spot == 1) |
+          (df$threshold == -10 & df$spot == 2) |
+          (df$threshold == -10 & df$spot == 4) |
+          (df$threshold == -10 & df$spot == 9), ]
+
+# Display the results
+
+knitr::kable(df, caption = "Table 3. Performance of Anopheles species identification with MALDI-TOF MS using the upgraded refrence MSL.")
+
+```
