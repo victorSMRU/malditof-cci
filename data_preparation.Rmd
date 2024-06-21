@@ -1,0 +1,282 @@
+---
+title: "Data preparation"
+author: "Victor Chaumeau"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: yes
+    number_sections: no
+---
+
+This document uses the raw data **data/dts_taxonomy.csv** (containing the sample information) and **data/dts_malditof.csv** (containing the spectra information) as inputs and produces the files **Rdata/taxonomy.Rdata** and **Rdata/metadata.Rdata** used in subsequent analyses. Data preparation includes:
+
+* definition of the reference identification result based on the result of DNA barcoding in the data frame **taxonomy**;
+* removal of mass spectra of mosquito specimens that could not be identified with DNA barcoding in the data frame **metadata**.
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE, include = TRUE)
+
+if(!dir.exists("Rdata")) {dir.create("Rdata")}
+
+```
+
+# Import the dataset
+
+```{r import_dataset}
+
+taxonomy_raw = read.csv("data/entomology_database/dts_taxonomy.csv", na.strings = "NA")
+metadata_raw = read.csv("data/entomology_database/dts_malditof.csv", na.strings = "NA")
+
+```
+
+# Sample information
+
+```{r taxonomy_dataset}
+
+taxonomy = taxonomy_raw
+
+# Morphological identification
+
+# Integrate the results of morphological identification by multiple readers
+
+taxonomy$morphology.identification.result = NA
+
+taxonomy$morphology.identification.result = ifelse(taxonomy$morpho1.taxon.code == taxonomy$morpho2.taxon.code , taxonomy$morpho1.taxon.code, taxonomy$morpho3.taxon.code)
+
+taxonomy$morphology.identification.result[is.na(taxonomy$morphology.identification.result)] = taxonomy$sorting.taxon.code[is.na(taxonomy$morphology.identification.result)]
+
+# Recode the identification result
+
+taxonomy$morphology.identification.result2 = taxonomy$morphology.identification.result
+
+taxonomy$morphology.identification.result2[taxonomy$morphology.identification.result == 'anopheles-anopheles-anopheles-aitkenii-X-X-X'] = 'Aitkenii Group'
+taxonomy$morphology.identification.result2[taxonomy$morphology.identification.result == 'anopheles-anopheles-lophocelomyia-asiaticus-interruptus-X-interruptus'] = 'Asiaticus Group'
+taxonomy$morphology.identification.result2[taxonomy$morphology.identification.result == 'anopheles-anopheles-myzorhynchus-barbirostris-X-X-X'] = 'Bariborstris Group'
+taxonomy$morphology.identification.result2[taxonomy$morphology.identification.result == 'anopheles-anopheles-myzorhynchus-hyrcanus-X-X-X'] = 'Hyrcanus Group'
+taxonomy$morphology.identification.result2[taxonomy$morphology.identification.result == 'anopheles-cellia-myzomyia-funestus-aconitus-aconitus-X'] = 'Funestus Group'
+taxonomy$morphology.identification.result2[taxonomy$morphology.identification.result == 'anopheles-cellia-myzomyia-funestus-aconitus-X-varuna'] = 'Funestus Group'
+taxonomy$morphology.identification.result2[taxonomy$morphology.identification.result == 'anopheles-cellia-myzomyia-funestus-culicifacies-culicifacies-X'] = 'Funestus Group'
+taxonomy$morphology.identification.result2[taxonomy$morphology.identification.result == 'anopheles-cellia-myzomyia-funestus-minimus-minimus-X'] = 'Funestus Group'
+taxonomy$morphology.identification.result2[taxonomy$morphology.identification.result == 'anopheles-cellia-myzomyia-funestus-minimus-minimus-minimus'] = 'Funestus Group'
+taxonomy$morphology.identification.result2[taxonomy$morphology.identification.result == 'anopheles-cellia-myzomyia-funestus-X-X-jeyporiensis'] = 'Funestus Group'
+taxonomy$morphology.identification.result2[taxonomy$morphology.identification.result == 'anopheles-cellia-neocellia-annularis-X-annularis-X'] = 'Annularis Group'
+taxonomy$morphology.identification.result2[taxonomy$morphology.identification.result == 'anopheles-cellia-neocellia-annularis-X-X-philippinensis'] = 'Annularis Group'
+taxonomy$morphology.identification.result2[taxonomy$morphology.identification.result == 'anopheles-cellia-neocellia-annularis-X-X-nivipes'] = 'Annularis Group'
+taxonomy$morphology.identification.result2[taxonomy$morphology.identification.result == 'anopheles-cellia-neocellia-annularis-X-X-X'] = 'Annularis Group'
+taxonomy$morphology.identification.result2[taxonomy$morphology.identification.result == 'anopheles-cellia-neocellia-jamesii-X-X-jamesii'] = 'Jamesii Group'
+taxonomy$morphology.identification.result2[taxonomy$morphology.identification.result == 'anopheles-cellia-neocellia-jamesii-X-X-splendidus'] = 'Jamesii Group'
+taxonomy$morphology.identification.result2[taxonomy$morphology.identification.result == 'anopheles-cellia-neocellia-jamesii-X-X-X'] = 'Jamesii Group'
+taxonomy$morphology.identification.result2[taxonomy$morphology.identification.result == 'anopheles-cellia-neocellia-maculatus-X-X-X'] = 'Maculatus Group'
+taxonomy$morphology.identification.result2[taxonomy$morphology.identification.result == 'anopheles-cellia-neocellia-X-X-X-karwari'] = 'Unclassified species (An. karwari)'
+taxonomy$morphology.identification.result2[taxonomy$morphology.identification.result == 'anopheles-cellia-neomyzomyia-kochi-X-X-kochi'] = 'Kochi Group'
+taxonomy$morphology.identification.result2[taxonomy$morphology.identification.result == 'anopheles-cellia-neomyzomyia-leucosphyrus-X-X-X'] = 'Leucosphyrus Group'
+taxonomy$morphology.identification.result2[taxonomy$morphology.identification.result == 'anopheles-cellia-neomyzomyia-tessellatus-X-tessellatus-X'] = 'Tesselatus Group'
+taxonomy$morphology.identification.result2[taxonomy$morphology.identification.result == 'anopheles-cellia-pyretophorus-subpictus-X-X-vagus'] = 'Subpictus Group'
+taxonomy$morphology.identification.result2[taxonomy$morphology.identification.result == 'anopheles-cellia-pyretophorus-subpictus-X-X-X'] = 'Subpictus Group'
+
+# Recode COI identification result
+
+taxonomy$refseqCOI.identification.result2 = taxonomy$refseqCOI.identification.result
+
+taxonomy$refseqCOI.identification.result2[taxonomy$refseqCOI.identification.result == 'anopheles-anopheles-lophocelomyia-asiaticus-interruptus-X-interruptus'] = 'An. interruptus'
+taxonomy$refseqCOI.identification.result2[taxonomy$refseqCOI.identification.result == 'anopheles-anopheles-myzorhynchus-barbirostris-barbirostris-barbirostris-dissidens'] = 'An. dissidens'
+taxonomy$refseqCOI.identification.result2[taxonomy$refseqCOI.identification.result == 'anopheles-anopheles-myzorhynchus-barbirostris-barbirostris-barbirostris-saeungae'] = 'An. saeungae'
+taxonomy$refseqCOI.identification.result2[taxonomy$refseqCOI.identification.result == 'anopheles-anopheles-myzorhynchus-barbirostris-barbirostris-barbirostris-wejchoochotei'] = 'An. campestris/wejchoochotei'
+taxonomy$refseqCOI.identification.result2[taxonomy$refseqCOI.identification.result == 'anopheles-anopheles-myzorhynchus-hyrcanus-X-X-kleini/sinensis'] = 'An. sinensis'
+taxonomy$refseqCOI.identification.result2[taxonomy$refseqCOI.identification.result == 'anopheles-anopheles-myzorhynchus-hyrcanus-lesteri-X-peditaeniatus'] = 'An. peditaeniatus'
+taxonomy$refseqCOI.identification.result2[taxonomy$refseqCOI.identification.result == 'anopheles-cellia-myzomyia-funestus-aconitus-aconitus-X'] = 'An. aconitus s.l.'
+taxonomy$refseqCOI.identification.result2[taxonomy$refseqCOI.identification.result == 'anopheles-cellia-myzomyia-funestus-aconitus-X-varuna'] = 'An. varuna'
+taxonomy$refseqCOI.identification.result2[taxonomy$refseqCOI.identification.result == 'anopheles-cellia-myzomyia-funestus-culicifacies-culicifacies-X'] = 'An. culicifacies s.l.'
+taxonomy$refseqCOI.identification.result2[taxonomy$refseqCOI.identification.result == 'anopheles-cellia-myzomyia-funestus-minimus-minimus-minimus'] = 'An. minimus'
+taxonomy$refseqCOI.identification.result2[taxonomy$refseqCOI.identification.result == 'anopheles-cellia-myzomyia-funestus-minimus-minimus-minimus-clade_I'] = 'An. minimus'
+taxonomy$refseqCOI.identification.result2[taxonomy$refseqCOI.identification.result == 'anopheles-cellia-myzomyia-funestus-minimus-minimus-minimus-clade_II'] = 'An. minimus'
+taxonomy$refseqCOI.identification.result2[taxonomy$refseqCOI.identification.result == 'anopheles-cellia-myzomyia-funestus-X-X-jeyporiensis'] = 'An. jeyporiensis'
+taxonomy$refseqCOI.identification.result2[taxonomy$refseqCOI.identification.result == 'anopheles-cellia-neocellia-annularis-X-annularis-sp_nr_annularis'] = 'An. sp. nr. annularis'
+taxonomy$refseqCOI.identification.result2[taxonomy$refseqCOI.identification.result == 'anopheles-cellia-neocellia-annularis-X-annularis-X'] = 'An. annularis s.l.'
+taxonomy$refseqCOI.identification.result2[taxonomy$refseqCOI.identification.result == 'anopheles-cellia-neocellia-annularis-X-X-nivipes'] = 'An. nivipes'
+taxonomy$refseqCOI.identification.result2[taxonomy$refseqCOI.identification.result == 'anopheles-cellia-neocellia-annularis-X-X-philippinensis'] = 'An. philippinensis'
+taxonomy$refseqCOI.identification.result2[taxonomy$refseqCOI.identification.result == 'anopheles-cellia-neocellia-jamesii-X-X-jamesii'] = 'An. jamesii'
+taxonomy$refseqCOI.identification.result2[taxonomy$refseqCOI.identification.result == 'anopheles-cellia-neocellia-jamesii-X-X-splendidus'] = 'An. splendidus'
+taxonomy$refseqCOI.identification.result2[taxonomy$refseqCOI.identification.result == 'anopheles-cellia-neocellia-maculatus-maculatus-X-dravidicus'] = 'An. dravidicus'
+taxonomy$refseqCOI.identification.result2[taxonomy$refseqCOI.identification.result == 'anopheles-cellia-neocellia-maculatus-maculatus-X-maculatus'] = 'An. maculatus'
+taxonomy$refseqCOI.identification.result2[taxonomy$refseqCOI.identification.result == 'anopheles-cellia-neocellia-maculatus-sawadwongporni-X-sawadwongporni'] = 'An. sawadwongporni'
+taxonomy$refseqCOI.identification.result2[taxonomy$refseqCOI.identification.result == 'anopheles-cellia-neocellia-maculatus-X-X-pseudowillmori'] = 'An. pseudowillmori'
+taxonomy$refseqCOI.identification.result2[taxonomy$refseqCOI.identification.result == 'anopheles-cellia-neocellia-X-X-X-karwari'] = 'An. karwari'
+taxonomy$refseqCOI.identification.result2[taxonomy$refseqCOI.identification.result == 'anopheles-cellia-neomyzomyia-kochi-X-X-kochi'] = 'An. kochi'
+taxonomy$refseqCOI.identification.result2[taxonomy$refseqCOI.identification.result == 'anopheles-cellia-neomyzomyia-leucosphyrus-leucosphyrus-dirus-baimaii/dirus'] = 'An. baimaii/dirus'
+taxonomy$refseqCOI.identification.result2[taxonomy$refseqCOI.identification.result == 'anopheles-cellia-neomyzomyia-tessellatus-X-tessellatus-tessellatus_C'] = 'An. tessellatus s.l.'
+taxonomy$refseqCOI.identification.result2[taxonomy$refseqCOI.identification.result == 'anopheles-cellia-pyretophorus-subpictus-X-X-vagus'] = 'An. vagus'
+
+# Recode ITS2 identification result
+
+taxonomy$refseqITS2.identification.result2 = taxonomy$refseqITS2.identification.result
+
+taxonomy$refseqITS2.identification.result2[taxonomy$refseqITS2.identification.result == 'unmatched species'] = 'unmatched species'
+taxonomy$refseqITS2.identification.result2[taxonomy$refseqITS2.identification.result == 'anopheles-anopheles-myzorhynchus-barbirostris-barbirostris-barbirostris-dissidens'] = 'An. dissidens'
+taxonomy$refseqITS2.identification.result2[taxonomy$refseqITS2.identification.result == 'anopheles-anopheles-myzorhynchus-barbirostris-barbirostris-barbirostris-saeungae'] = 'An. saeungae'
+taxonomy$refseqITS2.identification.result2[taxonomy$refseqITS2.identification.result == 'anopheles-anopheles-myzorhynchus-hyrcanus-lesteri-X-peditaeniatus'] = 'An. peditaeniatus'
+taxonomy$refseqITS2.identification.result2[taxonomy$refseqITS2.identification.result == 'anopheles-anopheles-myzorhynchus-hyrcanus-X-X-sinensis'] = 'An. sinensis'
+taxonomy$refseqITS2.identification.result2[taxonomy$refseqITS2.identification.result == 'anopheles-cellia-myzomyia-funestus-aconitus-aconitus-X'] = 'An. aconitus s.l.'
+taxonomy$refseqITS2.identification.result2[taxonomy$refseqITS2.identification.result == 'anopheles-cellia-myzomyia-funestus-aconitus-X-varuna'] = 'An. varuna'
+taxonomy$refseqITS2.identification.result2[taxonomy$refseqITS2.identification.result == 'anopheles-cellia-myzomyia-funestus-culicifacies-culicifacies-X'] = 'An. culicifacies s.l.'
+taxonomy$refseqITS2.identification.result2[taxonomy$refseqITS2.identification.result == 'anopheles-cellia-myzomyia-funestus-minimus-minimus-minimus'] = 'An. minimus'
+taxonomy$refseqITS2.identification.result2[taxonomy$refseqITS2.identification.result == 'anopheles-cellia-myzomyia-funestus-X-X-jeyporiensis'] = 'An. jeyporiensis'
+taxonomy$refseqITS2.identification.result2[taxonomy$refseqITS2.identification.result == 'anopheles-cellia-neocellia-annularis-X-annularis-X'] = 'An. annularis s.l.'
+taxonomy$refseqITS2.identification.result2[taxonomy$refseqITS2.identification.result == 'anopheles-cellia-neocellia-annularis-X-X-nivipes'] = 'An. nivipes'
+taxonomy$refseqITS2.identification.result2[taxonomy$refseqITS2.identification.result == 'anopheles-cellia-neocellia-annularis-X-X-philippinensis'] = 'An. philippinensis'
+taxonomy$refseqITS2.identification.result2[taxonomy$refseqITS2.identification.result == 'anopheles-cellia-neocellia-jamesii-X-X-jamesii'] = 'An. jamesii'
+taxonomy$refseqITS2.identification.result2[taxonomy$refseqITS2.identification.result == 'anopheles-cellia-neocellia-jamesii-X-X-splendidus'] = 'An. splendidus'
+taxonomy$refseqITS2.identification.result2[taxonomy$refseqITS2.identification.result == 'anopheles-cellia-neocellia-maculatus-maculatus-X-dravidicus'] = 'An. dravidicus'
+taxonomy$refseqITS2.identification.result2[taxonomy$refseqITS2.identification.result == 'anopheles-cellia-neocellia-maculatus-maculatus-X-maculatus'] = 'An. maculatus'
+taxonomy$refseqITS2.identification.result2[taxonomy$refseqITS2.identification.result == 'anopheles-cellia-neocellia-maculatus-sawadwongporni-X-sawadwongporni'] = 'An. sawadwongporni'
+taxonomy$refseqITS2.identification.result2[taxonomy$refseqITS2.identification.result == 'anopheles-cellia-neocellia-maculatus-X-X-pseudowillmori'] = 'An. pseudowillmori'
+taxonomy$refseqITS2.identification.result2[taxonomy$refseqITS2.identification.result == 'anopheles-cellia-neocellia-X-X-X-karwari'] = 'An. karwari'
+taxonomy$refseqITS2.identification.result2[taxonomy$refseqITS2.identification.result == 'anopheles-cellia-neomyzomyia-kochi-X-X-kochi'] = 'An. kochi'
+taxonomy$refseqITS2.identification.result2[taxonomy$refseqITS2.identification.result == 'anopheles-cellia-neomyzomyia-leucosphyrus-leucosphyrus-dirus-baimaii'] = 'An. baimaii'
+taxonomy$refseqITS2.identification.result2[taxonomy$refseqITS2.identification.result == 'anopheles-cellia-neomyzomyia-leucosphyrus-leucosphyrus-dirus-dirus'] = 'An. dirus'
+taxonomy$refseqITS2.identification.result2[taxonomy$refseqITS2.identification.result == 'anopheles-cellia-neomyzomyia-tessellatus-X-tessellatus-X'] = 'An. tessellatus s.l.'
+taxonomy$refseqITS2.identification.result2[taxonomy$refseqITS2.identification.result == 'anopheles-cellia-pyretophorus-subpictus-X-X-vagus'] = 'An. vagus'
+
+# Combined identification result of morphology, ITS2 and COI
+
+taxonomy$combined.identification.result = paste(taxonomy$morphology.identification.result2, taxonomy$refseqITS2.identification.result2, taxonomy$refseqCOI.identification.result2, sep = ' / ')
+
+# Reference identification result considering morphology, ITS2 and COI
+
+taxonomy$reference.identification.result = taxonomy$combined.identification.result
+
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Aitkenii Group / NA / NA'] = NA
+
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Annularis Group / An. annularis s.l. / An. annularis s.l.'] = 'An. annularis s.l.'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Annularis Group / An. annularis s.l. / An. sp. nr. annularis'] = 'An. annularis s.l.'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Annularis Group / An. annularis s.l. / NA'] = 'An. annularis s.l.'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Annularis Group / An. jamesii / An. jamesii'] = 'An. jamesii'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Annularis Group / An. maculatus / An. maculatus'] = 'An. maculatus'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Annularis Group / An. nivipes / An. nivipes'] = 'An. nivipes'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Annularis Group / An. nivipes / NA'] = 'An. nivipes'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Annularis Group / NA / An. nivipes'] = 'An. nivipes'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Annularis Group / An. philippinensis / An. philippinensis'] = 'An. philippinensis'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Annularis Group / An. philippinensis / NA'] = 'An. philippinensis'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Annularis Group / NA / NA'] = NA
+
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Asiaticus Group / unmatched species / An. interruptus'] = 'An. interruptus'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Asiaticus Group / unmatched species / NA'] = 'An. interruptus'
+
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Bariborstris Group / An. dissidens / NA'] = 'An. dissidens'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Bariborstris Group / An. dissidens / An. dissidens'] = 'An. dissidens'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Bariborstris Group / An. saeungae / An. saeungae'] = 'An. saeungae'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Bariborstris Group / NA / An. campestris/wejchoochotei'] = 'An. campestris/wejchoochotei'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Bariborstris Group / NA / An. dissidens'] = 'An. dissidens'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Bariborstris Group / NA / An. saeungae'] = 'An. saeungae'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Bariborstris Group / NA / NA'] = NA
+
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Funestus Group / An. aconitus s.l. / An. aconitus s.l.'] = 'An. aconitus s.l.'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Funestus Group / An. aconitus s.l. / NA'] = 'An. aconitus s.l.'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Funestus Group / An. culicifacies s.l. / An. culicifacies s.l.'] = 'An. culicifacies s.l.'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Funestus Group / An. culicifacies s.l. / NA'] = 'An. culicifacies s.l.'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Funestus Group / An. jeyporiensis / An. jeyporiensis'] = 'An. jeyporiensis'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Funestus Group / An. jeyporiensis / NA'] = 'An. jeyporiensis'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Funestus Group / An. minimus / An. minimus'] = 'An. minimus'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Funestus Group / An. minimus / NA'] = 'An. minimus'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Funestus Group / An. varuna / An. varuna'] = 'An. varuna'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Funestus Group / NA / An. culicifacies s.l.'] = 'An. culicifacies s.l.'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Funestus Group / NA / An. minimus'] = 'An. minimus'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Funestus Group / NA / NA'] = NA
+
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Hyrcanus Group / An. maculatus / An. maculatus'] = 'An. maculatus'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Hyrcanus Group / An. peditaeniatus / An. peditaeniatus'] = 'An. peditaeniatus'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Hyrcanus Group / An. peditaeniatus / NA'] = 'An. peditaeniatus'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Hyrcanus Group / An. sinensis / An. sinensis'] = 'An. sinensis'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Hyrcanus Group / An. sinensis / NA'] = 'An. sinensis'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Hyrcanus Group / NA / NA'] = NA
+
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Jamesii Group / An. jamesii / An. jamesii'] = 'An. jamesii'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Jamesii Group / An. jamesii / NA'] = 'An. jamesii'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Jamesii Group / An. nivipes / NA'] = 'An. nivipes'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Jamesii Group / An. sawadwongporni / NA'] = 'An. sawadwongporni'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Jamesii Group / An. splendidus / An. splendidus'] = 'An. splendidus'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Jamesii Group / An. splendidus / NA'] = 'An. splendidus'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Jamesii Group / NA / An. jamesii'] = 'An. jamesii'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Jamesii Group / NA / An. splendidus'] = 'An. splendidus'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Jamesii Group / NA / NA'] = NA
+
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Kochi Group / An. kochi / An. kochi'] = 'An. kochi'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Kochi Group / An. kochi / NA'] = 'An. kochi'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Kochi Group / An. nivipes / An. nivipes'] = 'An. nivipes'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Kochi Group / NA / An. kochi'] = 'An. kochi'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Kochi Group / NA / NA'] = NA
+
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Leucosphyrus Group / An. baimaii / An. baimaii/dirus'] = 'An. baimaii'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Leucosphyrus Group / An. baimaii / NA'] = 'An. baimaii'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Leucosphyrus Group / An. dirus / NA'] = 'An. dirus'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Leucosphyrus Group / NA / An. baimaii/dirus'] = NA
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Leucosphyrus Group / NA / NA'] = NA
+
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Maculatus Group / An. dravidicus / An. dravidicus'] = 'An. dravidicus'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Maculatus Group / An. dravidicus / NA'] = 'An. dravidicus'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Maculatus Group / An. jamesii / An. jamesii'] = 'An. jamesii'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Maculatus Group / An. jeyporiensis / An. jeyporiensis'] = 'An. jeyporiensis'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Maculatus Group / An. kochi / An. kochi'] = 'An. kochi'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Maculatus Group / An. maculatus / An. maculatus'] = 'An. maculatus'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Maculatus Group / An. maculatus / NA'] = 'An. maculatus'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Maculatus Group / An. pseudowillmori / An. pseudowillmori'] = 'An. pseudowillmori'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Maculatus Group / An. pseudowillmori / NA'] = 'An. pseudowillmori'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Maculatus Group / An. sawadwongporni / An. sawadwongporni'] = 'An. sawadwongporni'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Maculatus Group / An. sawadwongporni / NA'] = 'An. sawadwongporni'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Maculatus Group / An. sinensis / An. sinensis'] = 'An. sinensis'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Maculatus Group / NA / An. maculatus'] = 'An. maculatus'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Maculatus Group / NA / NA'] = NA
+
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Subpictus Group / An. vagus / An. vagus'] = 'An. vagus'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Subpictus Group / An. vagus / NA'] = 'An. vagus'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Subpictus Group / NA / NA'] = NA
+
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Tesselatus Group / An. tessellatus s.l. / An. tessellatus s.l.'] = 'An. tessellatus s.l.'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Tesselatus Group / An. tessellatus s.l. / NA'] = 'An. tessellatus s.l.'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Tesselatus Group / NA / NA'] = NA
+
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Unclassified species (An. karwari) / An. karwari / An. karwari'] = 'An. karwari'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Unclassified species (An. karwari) / An. karwari / NA'] = 'An. karwari'
+taxonomy$reference.identification.result[taxonomy$combined.identification.result == 'Unclassified species (An. karwari) / NA / NA'] = NA
+
+# Map the combined identification result to the reference identification result
+# sort(unique(paste(taxonomy$combined.identification.result, taxonomy$reference.identification.result, sep = " => ")))
+
+# Select variables
+
+varsel = c('sample.id', 'panel', 'sorting.collection.date', 'sorting.reception.date',
+           'sorting.sorting.date', 'sorting.village.code', 'sorting.colmet',
+           'morphology.identification.result2', 'refseqITS2.identification.result2',
+           'refseqCOI.identification.result2', 'reference.identification.result', 'refseqITS2.sequence.id', 'its2.clean.seq', 'refseqCOI.sequence.id', 'coi.clean.seq')
+
+taxonomy = taxonomy[, varsel]
+
+# Save Rdata
+
+save(taxonomy, file = "Rdata/taxonomy.Rdata")
+
+```
+
+# Spectra information
+
+
+```{r spectra_metadata}
+
+metadata = metadata_raw
+
+# Recode run.id as character variable
+
+metadata$run.id = as.character(metadata$run.id)
+
+## Remove spectra of unidentified mosquito samples
+
+ls_unidentified = taxonomy$sample.id[is.na(taxonomy$reference.identification.result)]
+metadata = metadata[!metadata$sample.id %in% ls_unidentified, ]
+
+# Save Rdata
+
+save(metadata, file = "Rdata/metadata.Rdata")
+
+```
+
