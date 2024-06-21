@@ -1,0 +1,1381 @@
+---
+title: "Fingerprint matching of Anopheles species with MALDI-TOF mass spectrometry
+  using a modified cross-correlation approach"
+author: "Victor Chaumeau"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: yes
+    number_sections: no
+    keep_md: yes
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(cache = TRUE, cache.comments = FALSE,
+                      echo = F, include = TRUE, 
+                      fig.width = 8, fig.height = 8,
+                      fig.pos = 'H',dev = c('png','tiff'), dpi = 300,cache.lazy = FALSE)
+
+# Load packages
+library("MALDIquant")
+library("MALDIquantForeign")
+library("extrafont")
+library("RColorBrewer")
+library("plyr")
+library("scales")
+library("plotrix")
+library("cluster")
+# library("factoextra")
+library("ape")
+library("magrittr")
+library("tidyr")
+
+# Create an output directory for tables
+if(!dir.exists('tables')){dir.create("tables")}
+
+# Set color palette
+my_cols = brewer.pal(n = 8, 'Dark2')
+palette(brewer.pal(n = 8, 'Dark2'))
+
+```
+
+# Session information
+
+```{r session_info}
+
+sessionInfo()
+
+```
+
+```{r load_dataset}
+
+# Sample and spectra information
+load("Rdata/taxonomy.Rdata") # Sample information
+load("Rdata/metadata.Rdata") # Spectra information
+
+# Output of CCI algorithm
+load("Rdata/out_cci.Rdata")
+
+# Output of repoducibility assessment
+load("Rdata/reproducibility_intra.Rdata") # Comparisons between technical replicates
+load("Rdata/reproducibility_inter.Rdata") # Comparisons between specimens of the same species
+load("Rdata/reproducibility_unref.Rdata") # Comparisons between different species
+
+# Output of best match analysis
+load("Rdata/match_ref_self.Rdata") # Self-match enabled
+load("Rdata/match_ref_noself.Rdata") # Self-match disabled
+load("Rdata/match_val_noself.Rdata") # Match with the same species disabled
+
+# Output of simulation experiments
+load("Rdata/out_sim_v2b.Rdata") # Match with the same species enabled 
+load("Rdata/out_sim_unref_v2b.Rdata") # Match with the same species disabled 
+
+```
+
+# Principle of the CCI algorithm
+
+```{r figure1_CCI_principle, warning=F}
+
+# This chunk makes the figure explaining the principle of the cross-correlation
+# approach used to assess similarity between mass spectra in this study, as was
+# adapted from the original work of Arnold and Reilly (Rapid Commun Mass Spectrom. 1998)
+
+par(mfrow = c(3,2), mar = c(4,7,3,2) + 0.1, las = 1, family='Times New Roman', font.lab = 2)
+
+xmin = 2000
+xmax = 20000
+xint = 2000
+ymin = 0
+ymax = 120000
+yint = 20000
+
+plot(NULL, xlab="", ylab="", xaxt="n", yaxt="n", xlim=c(xmin, xmax), ylim=c(ymin, ymax),  panel.first=grid())
+axis(side = 1, at = seq(xmin, xmax, xint))
+axis(side = 2, at = seq(ymin, ymax, yint))
+title(xlab = "m/z")
+title(ylab = 'Intensity', line = 4.5)
+
+spectrum = importMzXml("data/spectra/202103080900/202103080900_1J2.mzXML")
+mass_vals = spectrum[[1]]@mass
+intensity_vals = spectrum[[1]]@intensity
+
+lines(intensity_vals ~ mass_vals, col = "black")
+
+xmin = 2000
+xmax = 20000
+xint = 2000
+ymin = 0
+ymax = 0.0025
+yint = 0.0005
+
+plot(NULL, xlab="", ylab="", xaxt="n", yaxt="n", xlim=c(xmin, xmax), ylim=c(ymin, ymax),  panel.first=grid())
+axis(side = 1, at = seq(xmin, xmax, xint))
+axis(side = 2, at = seq(ymin, ymax, yint))
+title(xlab = "m/z")
+title(ylab = 'Intensity', line = 4.5)
+
+spectrum = importMzXml("data/spectra/202103080900/202103080900_1J2.mzXML")
+spectrum = MALDIquant::trim(spectrum, range = c(2000,20000))
+spectrum = MALDIquant::transformIntensity(spectrum, method="sqrt")
+spectrum = MALDIquant::smoothIntensity(spectrum, method="SavitzkyGolay", halfWindowSize=10)
+spectrum = MALDIquant::removeBaseline(spectrum, method="SNIP", iterations=25)
+spectrum = MALDIquant::calibrateIntensity(spectrum, method="TIC")
+mass_vals = spectrum[[1]]@mass
+intensity_vals = spectrum[[1]]@intensity
+
+rect(xleft = 3000, ybottom = 0, xright = 12000, ytop = ymax, col = alpha("grey40", 0.5), border = NA)
+lines(intensity_vals ~ mass_vals, col = "black")
+
+xmin = 5000
+xmax = 5500
+xint = 50
+ymin = 0
+ymax = 0.004
+yint = 0.001
+
+plot(NULL, xlab="", ylab="", xaxt="n", yaxt="n", xlim=c(xmin, xmax), ylim=c(ymin, ymax),  panel.first=grid())
+axis(side = 1, at = seq(xmin, xmax, xint))
+axis(side = 2, at = seq(ymin, ymax, yint))
+title(xlab = "m/z")
+title(ylab = 'Intensity', line = 4.5)
+
+spectrum = importMzXml("data/spectra/202103080900/202103080900_1J2.mzXML")
+spectrum = MALDIquant::trim(spectrum, range = c(2000,20000))
+spectrum = MALDIquant::transformIntensity(spectrum, method="sqrt")
+spectrum = MALDIquant::smoothIntensity(spectrum, method="SavitzkyGolay", halfWindowSize=10)
+spectrum = MALDIquant::removeBaseline(spectrum, method="SNIP", iterations=25)
+spectrum = MALDIquant::calibrateIntensity(spectrum, method="TIC")
+mass_vals = spectrum[[1]]@mass
+intensity_vals = spectrum[[1]]@intensity
+
+lines(intensity_vals ~ mass_vals, col = my_cols[1])
+
+intensity_vals1 = intensity_vals[mass_vals>=5000 & mass_vals<5500]
+
+spectrum = importMzXml("data/spectra/202103080900/202103080900_3C1.mzXML")
+spectrum = MALDIquant::trim(spectrum, range = c(2000,20000))
+spectrum = MALDIquant::transformIntensity(spectrum, method="sqrt")
+spectrum = MALDIquant::smoothIntensity(spectrum, method="SavitzkyGolay", halfWindowSize=10)
+spectrum = MALDIquant::removeBaseline(spectrum, method="SNIP", iterations=25)
+spectrum = MALDIquant::calibrateIntensity(spectrum, method="TIC")
+mass_vals = spectrum[[1]]@mass
+intensity_vals = spectrum[[1]]@intensity
+
+lines(intensity_vals ~ mass_vals, col = my_cols[2])
+
+intensity_vals2 = intensity_vals[mass_vals>=5000 & mass_vals<5500]
+
+legend("topright", lty = c(1,1), col = my_cols[c(1,2)], legend = c("An. minimus", "An. minimus"), bg = NA, box.lwd = 0, text.font = 3)
+
+plot(NULL, xlab="", ylab="", xaxt="n", yaxt="n", xlim=c(xmin, xmax), ylim=c(ymin, ymax),  panel.first=grid())
+axis(side = 1, at = seq(xmin, xmax, xint))
+axis(side = 2, at = seq(ymin, ymax, yint))
+title(xlab = "m/z")
+title(ylab = 'Intensity', line = 4.5)
+
+spectrum = importMzXml("data/spectra/202103080900/202103080900_1J2.mzXML")
+spectrum = MALDIquant::trim(spectrum, range = c(2000,20000))
+spectrum = MALDIquant::transformIntensity(spectrum, method="sqrt")
+spectrum = MALDIquant::smoothIntensity(spectrum, method="SavitzkyGolay", halfWindowSize=10)
+spectrum = MALDIquant::removeBaseline(spectrum, method="SNIP", iterations=25)
+spectrum = MALDIquant::calibrateIntensity(spectrum, method="TIC")
+mass_vals = spectrum[[1]]@mass
+intensity_vals = spectrum[[1]]@intensity
+
+lines(intensity_vals ~ mass_vals, col = my_cols[1])
+
+spectrum = importMzXml("data/spectra/202201071200/202201071200_3C4.mzXML")
+spectrum = MALDIquant::trim(spectrum, range = c(2000,20000))
+spectrum = MALDIquant::transformIntensity(spectrum, method="sqrt")
+spectrum = MALDIquant::smoothIntensity(spectrum, method="SavitzkyGolay", halfWindowSize=10)
+spectrum = MALDIquant::removeBaseline(spectrum, method="SNIP", iterations=25)
+spectrum = MALDIquant::calibrateIntensity(spectrum, method="TIC")
+mass_vals = spectrum[[1]]@mass
+intensity_vals = spectrum[[1]]@intensity
+
+lines(intensity_vals ~ mass_vals, col = my_cols[3])
+
+intensity_vals3 = intensity_vals[mass_vals>=5000 & mass_vals<5500]
+
+legend("topright", lty = c(1,1), col = my_cols[c(1,3)], legend = c("An. minimus", "An. maculatus"), bg = NA, box.lwd = 0, text.font = 3)
+
+ccf(intensity_vals1, intensity_vals2, main = "", ylim = c(0,1))
+ccf(intensity_vals1, intensity_vals3, main = "", ylim = c(0,1))
+
+mtext('A', side = 3, line = -2, outer = TRUE, font = 2, cex = 1.5, adj = 0)
+mtext('B', side = 3, line = -2, outer = TRUE, font = 2, cex = 1.5, adj = 0.5)
+mtext('C', side = 3, line = -22, outer = TRUE, font = 2, cex = 1.5, adj = 0)
+mtext('D', side = 3, line = -22, outer = TRUE, font = 2, cex = 1.5, adj = 0.5)
+mtext('E', side = 3, line = -42, outer = TRUE, font = 2, cex = 1.5, adj = 0)
+mtext('F', side = 3, line = -42, outer = TRUE, font = 2, cex = 1.5, adj = 0.5)
+
+```
+
+**Figure 1. Principle of the cross-correlation algorithm.** (A) A typical raw MALDI-TOF mass spectrum of *An. minimus*, (B) the corresponding processed spectrum after intensity normalization and baseline removal, (C) comparison of the processed mass spectra of two *An. minimus* specimens over the 5000-5500 kDa mass interval showing high similarity between spectra, (D) comparison of the processed mass spectra of an *An. minimus* specimen and of an *An. maculatus* specimen over the 5000-5500 kDa mass interval showing limited similarity between spectra, (E) the cross-correlation function of the two *An. minimus* spectra over the 5000-5500 kDa mass interval gives a local maximum of 0.982 and (F) the cross-correlation function of the *An. minimus* and *An. maculatus* spectra over the 5000-5500 kDa mass interval gives a local maximum of 0.540. If no local maximum of the cross-correlation function is detected, the algorithm is parameterized to return 0. The resulting cross-correlation index on the log scale (log10CCI) over the 3000-12000 kDa mass range is -4.9 for the two *An. minimus* spectra and -Infinite for the *An. minimus* and *An. maculatus* spectra.
+
+```{r CCI_principle_main_text, include = FALSE}
+
+# CCI value for minimus vs minimus
+
+df = out_cci
+df = df[df$spectrum.in == '202103080900_1J2' & df$spectrum.out == '202103080900_3C1', ]
+n1 = df$cci_log
+
+# CCI value for minimus vs maculatus
+
+df = out_cci
+df = df[df$spectrum.in == '202103080900_1J2' & df$spectrum.out == '202201071200_3C4', ]
+n2 = df$cci_log
+
+sprintf('The log10CCI value is %.1f and %.1f for the An. minimus vs An. minimus and An. minimus vs An. maculatus comparisons, repsectively.', n1, n2)
+
+```
+
+# Samples collection and preparation
+
+```{r}
+
+# This chunk gives the figures on sample collection and preparation
+# cited in the main text of the manuscript
+
+# No. of villages and survey dates
+
+n = length(unique(taxonomy$sorting.village.code))
+d1 = min(as.Date(taxonomy$sorting.collection.date, format = '%d/%m/%Y'))
+d2 = max(as.Date(taxonomy$sorting.collection.date, format = '%d/%m/%Y'))
+
+sprintf('Entomological surveys were carried out in %i villages between %s and %s', n, d1, d2)
+
+# Time between sample collection, reception and processing
+
+varsel1 = c('sample.id','panel','sorting.collection.date','sorting.reception.date', 'sorting.sorting.date')
+varsel2 = c('sample.id','date')
+df = merge.data.frame(taxonomy[,varsel1], metadata[,varsel2], by = 'sample.id', all.x = T)
+
+df$sorting.collection.date = as.Date(df$sorting.collection.date, format = '%d/%m/%Y')
+df$sorting.reception.date = as.Date(df$sorting.reception.date, format = '%d/%m/%Y')
+df$sorting.sorting.date = as.Date(df$sorting.sorting.date, format = '%d/%m/%Y')
+df$date = as.Date(df$date, format = '%d/%m/%Y')
+
+df$tdif.reception = df$sorting.reception.date - df$sorting.collection.date
+df$tdif.processing = df$date - df$sorting.reception.date
+
+t1 = min(as.numeric(df$tdif.reception))
+t2 = max(as.numeric(df$tdif.reception))
+
+sprintf('Mosquito samples were recieved in the laboratory %i to %i days after collection', t1, t2)
+
+t1 = min(as.numeric(df$tdif.processing[df$panel == 'reference']), na.rm = T)
+t2 = max(as.numeric(df$tdif.processing[df$panel == 'reference']), na.rm = T)
+
+sprintf('Mosquito samples in the reference panel were processed in MALDI-TOF MS after %i to %i days of storage at -80°C', t1, t2)
+
+t1 = min(as.numeric(df$tdif.processing[df$panel == 'test']), na.rm = T)
+t2 = max(as.numeric(df$tdif.processing[df$panel == 'test']), na.rm = T)
+
+sprintf('Mosquito samples in the test panel were processed in MALDI-TOF MS after %i to %i days of storage at -20°C', t1, t2)
+
+```
+# Panel composition
+
+```{r}
+
+# Number of samples selected for inclusion in either the reference or the test panel
+
+n1 = nrow(taxonomy)
+n2 = nrow(taxonomy[taxonomy$panel == 'reference', ])
+n3 = nrow(taxonomy[taxonomy$panel == 'test', ])
+
+sprintf('%i Anopheles specimens were selected for inclusion in either the reference or the test panel (%i and %i specimens, respectively)', n1, n2, n3)
+
+```
+
+```{r}
+
+# Number of samples in the reference panel identified with DNA barcoding
+
+df = taxonomy
+df = df[df$panel == "reference",]
+df = df[!is.na(df$reference.identification.result),]
+df = df[!is.na(df$refseqITS2.identification.result2) | !is.na(df$refseqCOI.identification.result2),]
+
+N = nrow(df)
+n1 = nrow(df[!is.na(df$refseqITS2.identification.result2) & is.na(df$refseqCOI.identification.result2),])
+n2 = nrow(df[is.na(df$refseqITS2.identification.result2) & !is.na(df$refseqCOI.identification.result2),])
+n3 = nrow(df[!is.na(df$refseqITS2.identification.result2) & !is.na(df$refseqCOI.identification.result2),])
+
+sprintf('%i specimens of the reference panel could be identified with PCR (ITS2: %i; COI: %i; ITS2+COI: %i)', N, n1, n2, n3)
+
+```
+
+```{r}
+
+# Number of samples in the test panel identified with DNA barcoding
+
+df = taxonomy
+df = df[df$panel == "test",]
+df = df[!is.na(df$reference.identification.result),]
+df = df[!is.na(df$refseqITS2.identification.result2) | !is.na(df$refseqCOI.identification.result2),]
+
+N = nrow(df)
+n1 = nrow(df[!is.na(df$refseqITS2.identification.result2) & is.na(df$refseqCOI.identification.result2),])
+n2 = nrow(df[is.na(df$refseqITS2.identification.result2) & !is.na(df$refseqCOI.identification.result2),])
+n3 = nrow(df[!is.na(df$refseqITS2.identification.result2) & !is.na(df$refseqCOI.identification.result2),])
+
+sprintf('%i specimens of the test panel could be identified with PCR (ITS2: %i; COI: %i; ITS2+COI: %i)', N, n1, n2, n3)
+
+```
+
+```{r}
+
+# Total number and list of PCR-defined taxa
+
+df = taxonomy
+df = df[!is.na(df$reference.identification.result),]
+df = df[!is.na(df$refseqITS2.identification.result2) | !is.na(df$refseqCOI.identification.result2),]
+
+n1 = nrow(df)
+n2 = length(unique(df$reference.identification.result))
+n3 = length(unique(df$reference.identification.result[!grepl('s\\.l\\.|\\/', df$reference.identification.result)]))
+n4 = length(unique(df$reference.identification.result[grepl('s\\.l\\.|\\/', df$reference.identification.result)]))
+sprintf('In total, %i PCR-identified specimens were asigned to %i taxa including %i sensu stricto species and %i sibling species pairs or complexes', n1, n2, n3, n4)
+
+print(sort(unique(df$reference.identification.result)))
+
+```
+
+```{r}
+
+# Deviations from initial design
+
+df = taxonomy
+df = df[is.na(df$reference.identification.result),]
+df = df[!is.na(df$refseqCOI.identification.result2),]
+
+t = unique(df$refseqCOI.identification.result2)
+n = nrow(df)
+
+sprintf('%i specimens identified with COI-PCR as %s were excluded from the panel because other specimens of An. baimai and An. dirus identified with ITS2-PCR were available', n, t)
+
+df = taxonomy
+df = df[is.na(df$reference.identification.result),]
+df = df[!is.na(df$its2.clean.seq),]
+
+t = unique(df$morphology.identification.result2)
+n = nrow(df)
+
+sprintf('%i specimens identified by morphology as %s were removed from the panel despite amplification of a ITS2 because the clean portion of the sequence was too short', n, t)
+
+```
+
+```{r table1_panel_composition, warning=FALSE}
+
+# This chunk makes the table showing the panel composition including all PCR-identified specimens
+
+## Subset the PCR-identified samples in the taxonomy table
+
+df = taxonomy
+df = df[!is.na(df$reference.identification.result), ]
+
+## Aggregate by species
+
+out = aggregate(sample.id ~ panel + reference.identification.result, data = df, FUN = length)
+names(out) = c('panel', 'species', 'n')
+out = pivot_wider(out, names_from = 'panel', values_from = 'n')
+out[is.na(out)] = 0
+out$total = out$reference + out$test
+
+# Add variable group
+
+out$group[out$species == "An. aconitus s.l."] = "Funestus"
+out$group[out$species == "An. annularis s.l."] = "Annularis"
+out$group[out$species == "An. baimaii"] = "Leucosphyrus"
+out$group[out$species == "An. campestris/wejchoochotei"] = "Barbirostris"
+out$group[out$species == "An. culicifacies s.l."] = "Funestus"
+out$group[out$species == "An. dirus"] = "Leucosphyrus"
+out$group[out$species == "An. dissidens"] = "Barbirostris"
+out$group[out$species == "An. dravidicus"] = "Maculatus"
+out$group[out$species == "An. interruptus"] = "Asiaticus"
+out$group[out$species == "An. jamesii"] = "Jamesii"
+out$group[out$species == "An. jeyporiensis"] = "Funestus"
+out$group[out$species == "An. karwari"] = "Unclassified"
+out$group[out$species == "An. kochi"] = "Kochi"
+out$group[out$species == "An. maculatus"] = "Maculatus"
+out$group[out$species == "An. minimus"] = "Funestus"
+out$group[out$species == "An. nivipes"] = "Annularis"
+out$group[out$species == "An. peditaeniatus"] = "Hyrcanus"
+out$group[out$species == "An. philippinensis"] = "Annularis"
+out$group[out$species == "An. pseudowillmori"] = "Maculatus"
+out$group[out$species == "An. saeungae"] = "Barbirostris"
+out$group[out$species == "An. sawadwongporni"] = "Maculatus"
+out$group[out$species == "An. sinensis"] = "Hyrcanus"
+out$group[out$species == "An. splendidus"] = "Jamesii"
+out$group[out$species == "An. tessellatus s.l."] = "Tessellatus"
+out$group[out$species == "An. vagus"] = "Subpictus"
+out$group[out$species == "An. varuna"] = "Funestus"
+
+# Add variable subgenus
+
+out$subgenus[out$group == "Annularis"] = "Cellia"
+out$subgenus[out$group == "Asiaticus"] = "Anopheles"
+out$subgenus[out$group == "Barbirostris"] = "Anopheles"
+out$subgenus[out$group == "Funestus"] = "Cellia"
+out$subgenus[out$group == "Hyrcanus"] = "Anopheles"
+out$subgenus[out$group == "Jamesii"] = "Cellia"
+out$subgenus[out$group == "Kochi"] = "Cellia"
+out$subgenus[out$group == "Leucosphyrus"] = "Cellia"
+out$subgenus[out$group == "Maculatus"] = "Cellia"
+out$subgenus[out$group == "Subpictus"] = "Cellia"
+out$subgenus[out$group == "Tessellatus"] = "Cellia"
+out$subgenus[out$group == "Unclassified"] = "Cellia"
+
+# Reorder the output table
+
+out = out[order(out$subgenus, out$group, out$species), c('subgenus', 'group', 'species', 'reference', 'test', 'total')]
+
+# Display the output table
+
+knitr::kable(out, caption = "Table 1. Panel composition")
+
+# Save the output table
+
+write.csv(out, file = "tables/table1_panel_composition.csv")
+
+```
+
+# Constuction of the reference MSL
+
+## Characteristics of the reference MSL
+
+```{r}
+
+# Number of reference spectra and pairwise comparisons between reference spectra
+
+ls = taxonomy$sample.id[taxonomy$panel == 'reference']
+
+df = metadata
+df = df[df$sample.id %in% ls, ]
+n1 = nrow(df)
+
+df = taxonomy
+df = df[df$panel == 'reference', ]
+df = df[!is.na(df$reference.identification.result),]
+n2 = nrow(df)
+
+df = out_cci
+df = df[df$sample.in %in% ls, ]
+df = df[df$sample.out %in% ls, ]
+n3 = nrow(df)
+
+sprintf('%i mass spectra of the %i reference Anopheles specimens identified with PCR were acquired, yielding %i pairwise comparisons of distinct spectra pairs', n1, n2, n3)
+
+```
+
+## Repetability, reproducibility and specificity of mass spectra
+
+```{r}
+
+# Distribution of the log10CCI values in subset of the comparisons
+
+# Comparisons of technical replicates of the same specimen (intra-sample reproducibility)
+
+ls = taxonomy$sample.id[taxonomy$panel == 'reference']
+
+df = out_cci
+df = df[df$sample.in %in% ls, ]
+df = df[df$sample.out %in% ls, ]
+df = df[df$sample.in == df$sample.out, ]
+
+n1 = quantile(df$cci_log, .5)
+n2 = quantile(df$cci_log, .25)
+n3 = quantile(df$cci_log, .75)
+sprintf('The median log10CCI was %.1f (IQR: %.1f to %.1f) for comparisons of technical replicates of the same specimen.', n1, n2, n3)
+
+# Comparisons of specimens of the same species (inter-sample reproducibility)
+
+df = out_cci
+df = df[df$sample.in %in% ls, ]
+df = df[df$sample.out %in% ls, ]
+df = df[df$species.in == df$species.out, ]
+df = df[df$sample.in != df$sample.out, ]
+
+n1 = quantile(df$cci_log, .5)
+n2 = quantile(df$cci_log, .25)
+n3 = quantile(df$cci_log, .75)
+sprintf('The median log10CCI was %.1f (IQR: %.1f to %.1f) for comparisons of technical replicates of the same specimen.', n1, n2, n3)
+
+# Comparisons of specimens of different species (specificity of mass spectra)
+
+df = out_cci
+df = df[df$sample.in %in% ls, ]
+df = df[df$sample.out %in% ls, ]
+df = df[df$species.in != df$species.out, ]
+
+n1 = quantile(df$cci_log, .5)
+n2 = quantile(df$cci_log, .25)
+n3 = quantile(df$cci_log, .75)
+sprintf('The median log10CCI was %.1f (IQR: %.1f to %.1f) for comparisons of technical replicates of the same specimen.', n1, n2, n3)
+
+```
+
+```{r figure3_spectra_reproducibility, warning=F}
+
+# Think chunk makes the figure showing the distribution of the log10CCI values
+# subsets of the pairwise comparisons corresponding to technical replicates of
+# the same sample, of spectra of the same species and spectra of different species
+
+ls = taxonomy$sample.id[taxonomy$panel == 'reference']
+n_spectra_ref = nrow(metadata[metadata$sample.id %in% ls, ])
+
+# Replace negative infinite CCI values by minimum observed CCI value
+
+min_cci = floor(
+  min(
+    c(
+      min(reproducibility_intra$median.cci[reproducibility_intra$median.cci != -Inf]),
+      min(reproducibility_inter$median.cci[reproducibility_inter$median.cci != -Inf]),
+      min(reproducibility_unref$median.cci[reproducibility_unref$median.cci != -Inf]))
+  ))
+
+reproducibility_intra$median.cci[reproducibility_intra$median.cci == -Inf] = min_cci
+reproducibility_inter$median.cci[reproducibility_inter$median.cci == -Inf] = min_cci
+reproducibility_unref$median.cci[reproducibility_unref$median.cci == -Inf] = min_cci
+
+# Make the plot
+
+par(mfrow = c(3,2), mar = c(5,4,4,2) + 0.1, las = 1, font.lab = 2, family = "Times New Roman")
+
+# Comparisons of the same specimen
+
+plot(NULL, xlab="", ylab="", xaxt="n", yaxt="n", xlim=c(0, n_spectra_ref), ylim=c(-25, 0),  panel.first=grid())
+points(reproducibility_intra$median.cci[reproducibility_intra$exclude == F] ~ as.integer(factor(reproducibility_intra$spectrum[reproducibility_intra$exclude == F], sort(unique(reproducibility_intra$spectrum)))), pch = 16, col = alpha("grey20",0.5))
+points(reproducibility_intra$median.cci[reproducibility_intra$exclude == T] ~ as.integer(factor(reproducibility_intra$spectrum[reproducibility_intra$exclude == T], sort(unique(reproducibility_intra$spectrum)))), pch = 16, col = alpha(my_cols[2],0.5))
+axis(side = 1, at = seq(0, n_spectra_ref, 50), labels = NA)
+axis(side = 2, at = seq(-25, 0, 5), labels = c("-Inf", -20, -15, -10, -5, 0))
+axis.break(axis=2,-23,bgcol="white",breakcol="black", style="slash",brw=0.02)
+title(xlab = 'Spectrum')
+title(ylab = "log10(CCI)")
+
+plot(NULL, xlab="", ylab="", xaxt="n", yaxt="n", xlim=c(-25, 0), ylim=c(0, 3),  panel.first=grid())
+polygon(density(reproducibility_intra$median.cci), col = alpha("grey20",0.5), border = NA)
+axis(side = 1, at = seq(-25, 0, 5), labels = c("-Inf", -20, -15, -10, -5, 0))
+axis(side = 2, at = seq(0, 3, 0.5))
+axis.break(axis=1,-23,bgcol="white",breakcol="black", style="slash",brw=0.02)
+title(xlab = "log10(CCI)")
+title(ylab = 'Density')
+
+# Comparisons of the same species
+
+plot(NULL, xlab="", ylab="", xaxt="n", yaxt="n", xlim=c(0, n_spectra_ref), ylim=c(-25, 0),  panel.first=grid())
+points(reproducibility_inter$median.cci[reproducibility_inter$exclude == F] ~ as.integer(factor(reproducibility_inter$spectrum[reproducibility_inter$exclude == F], sort(unique(reproducibility_inter$spectrum)))), pch = 16, col = alpha("grey20",0.5))
+points(reproducibility_inter$median.cci[reproducibility_inter$exclude == T] ~ as.integer(factor(reproducibility_inter$spectrum[reproducibility_inter$exclude == T], sort(unique(reproducibility_inter$spectrum)))), pch = 16, col = alpha(my_cols[2],0.5))
+axis(side = 1, at = seq(0, n_spectra_ref, 50), labels = NA)
+axis(side = 2, at = seq(-25, 0, 5), labels = c("-Inf", -20, -15, -10, -5, 0))
+axis.break(axis=2,-23,bgcol="white",breakcol="black", style="slash",brw=0.02)
+title(xlab = 'Spectrum')
+title(ylab = "log10(CCI)")
+
+plot(NULL, xlab="", ylab="", xaxt="n", yaxt="n", xlim=c(-25, 0), ylim=c(0, 3),  panel.first=grid())
+polygon(density(reproducibility_inter$median.cci), col = alpha("grey20",0.5), border = NA)
+axis(side = 1, at = seq(-25, 0, 5), labels = c("-Inf", -20, -15, -10, -5, 0))
+axis(side = 2, at = seq(0, 3, 0.5))
+axis.break(axis=1,-23,bgcol="white",breakcol="black", style="slash",brw=0.02)
+title(xlab = "log10(CCI)")
+title(ylab = 'Density')
+
+# Comparisons of the different species
+
+plot(NULL, xlab="", ylab="", xaxt="n", yaxt="n", xlim=c(0, n_spectra_ref), ylim=c(-25, 0),  panel.first=grid())
+points(reproducibility_unref$median.cci~ as.integer(factor(reproducibility_unref$spectrum, sort(unique(reproducibility_unref$spectrum)))), pch = 16, col = alpha("grey20",0.5))
+axis(side = 1, at = seq(0, n_spectra_ref, 50), labels = NA)
+axis(side = 2, at = seq(-25, 0, 5), labels = c("-Inf", -20, -15, -10, -5, 0))
+axis.break(axis=2,-23,bgcol="white",breakcol="black", style="slash",brw=0.02)
+title(xlab = 'Spectrum')
+title(ylab = "log10(CCI)")
+
+plot(NULL, xlab="", ylab="", xaxt="n", yaxt="n", xlim=c(-25, 0), ylim=c(0, 3),  panel.first=grid())
+polygon(density(reproducibility_unref$median.cci), col = alpha("grey20",0.5), border = NA)
+axis(side = 1, at = seq(-25, 0, 5), labels = c("-Inf", -20, -15, -10, -5, 0))
+axis(side = 2, at = seq(0, 3, 0.5))
+axis.break(axis=1,-23,bgcol="white",breakcol="black", style="slash",brw=0.02)
+title(xlab = "log10(CCI)")
+title(ylab = 'Density')
+
+# Add panel labels
+
+mtext('A', side = 3, line = -2, outer = TRUE, font = 2, cex = 1.5, adj = 0)
+mtext('B', side = 3, line = -2, outer = TRUE, font = 2, cex = 1.5, adj = 0.5)
+mtext('C', side = 3, line = -22, outer = TRUE, font = 2, cex = 1.5, adj = 0)
+mtext('D', side = 3, line = -22, outer = TRUE, font = 2, cex = 1.5, adj = 0.5)
+mtext('E', side = 3, line = -42, outer = TRUE, font = 2, cex = 1.5, adj = 0)
+mtext('F', side = 3, line = -42, outer = TRUE, font = 2, cex = 1.5, adj = 0.5)
+
+```
+**Figure 3. Repeatability, reproducibility and specificity of the mass spectra.** (A) median log10CCI of pairwise comparisons between technical replicates of the same specimen collated by mass spectrum and (B) corresponding density function, (C) median log10CCI of pairwise comparisons between spectra of different specimens of the same species collated by mass spectrum and (D) corresponding density function, (E) median log10CCI of pairwise comparisons between spectra of different species  collated by mass spectrum and (F) corresponding density function. Spectra with low intra-specimen (median  log10CCI < 12, 39 spectra) and inter-specimen reproducibility (median  log10CCI < 14, 115 spectra) are shown in orange in the panel A and C, respectively.
+
+## Heatmap grid
+
+```{r figure4_heatmap_grid, warning=F, fig.width = 32, fig.height = 32}
+
+# This chunk makes the heatmap grid of the sample-collated median log10CCI value
+
+ls = taxonomy$sample.id[taxonomy$panel == 'reference']
+ls_spectra_ref_included = metadata$spectrum.id[metadata$sample.id %in% ls]
+
+# Make a table of pairwise comparisons of all mass spectra included in the reference MSL
+
+output = expand.grid(ls_spectra_ref_included, ls_spectra_ref_included)
+names(output) = c("spectrum.in", "spectrum.out")
+output$spectrum.in = as.character(output$spectrum.in)
+output$spectrum.out = as.character(output$spectrum.out)
+
+# Remove comparisons of a spectrum with itself
+
+output = output[output$spectrum.in != output$spectrum.out, ]
+
+# Add sample information
+
+output$sample.in = metadata$sample.id[match(output$spectrum.in, metadata$spectrum.id)]
+output$sample.out = metadata$sample.id[match(output$spectrum.out, metadata$spectrum.id)]
+output$species.in = taxonomy$reference.identification.result[match(output$sample.in, taxonomy$sample.id)]
+output$species.out = taxonomy$reference.identification.result[match(output$sample.out, taxonomy$sample.id)]
+output$sample.in = paste0(output$species.in, " (", output$sample.in, ")")
+output$sample.out = paste0(output$species.out, " (", output$sample.out, ")")
+
+# Add CCI values from the output of CCI algorithm
+
+out_cci$tag = paste(out_cci$spectrum.in, out_cci$spectrum.out)
+output$tag = paste(output$spectrum.in, output$spectrum.out)
+output$cci = out_cci$cci[match(output$tag, out_cci$tag)]
+output$tag = paste(output$spectrum.out, output$spectrum.in)
+output$cci[is.na(output$cci)] = out_cci$cci[match(output$tag[is.na(output$cci)], out_cci$tag)]
+output = output[!is.na(output$cci),]
+output$cci_log = log10(output$cci)
+
+# Replace negative infinite values by NA
+
+output$cci_log[is.infinite(output$cci_log)] = NA
+
+# Compute the specimen-collated median CCI values
+
+dta_agg = aggregate(cci_log~sample.in+sample.out, FUN = median, data = output)
+dta_agg = dta_agg[order(dta_agg$sample.in, dta_agg$sample.out),]
+
+# Make a matrix
+
+df = daply(dta_agg, .(sample.in, sample.out), function(x) x$cci_log)
+
+# Set color palette
+
+pal = colorRampPalette(rev(brewer.pal(11, "RdYlBu")))(10)
+
+# Make plot
+
+heatmap(df, symm = T, scale = "none",  margins = c(20,20), Rowv = NA, Colv = NA, cexRow = 1, cexCol = 1, col = pal)
+
+# Add legend
+
+legend("topleft", fill = pal, legend = unique(cut(sort(dta_agg$cci_log),10)), cex = 3, box.lwd = 4, bg = "white")
+
+```
+
+**Figure 4. Heat map grid of the median cross-correlation index collated by specimen included in the reference mass spectra database.** Red color on the diagonal shows the high reproducibility of mass spectra and the blue color out of the diagonal shows the high specificity of mass spectra. Orange color out of the central diagonal shows the high similarity between sibling species of the Barbirostris complex and some species of the Neomyzomyia series. Negative infinite values are showed in white.
+
+## Dendrogram
+
+```{r figureS1_dendrogram, fig.width = 16, fig.height = 24, warning=FALSE}
+
+# This chunk makes the dendrogram showing the output of hierarchical clustering
+# analysis
+
+# Compute distance and perform hierarchical clustering
+
+res.hc <- df %>%
+  scale() %>%
+  dist(method = "euc") %>%
+  hclust(method = "ward.D2")     
+
+# Make a tree
+
+# fviz_dend(res.hc, k = 2,
+#           cex = 0.35,
+#           lwd= 0.5,
+#           k_colors = c("black", "black"),
+#           color_labels_by_k = TRUE,
+#           rect = F,
+#           main = "",
+#           yaxt="n",
+#           ylab = ""
+# )
+
+plot(as.phylo(res.hc), cex = 0.6, label.offset = 0.5)
+
+```
+**Figure S1. Dendrogram showing the output of hierarchical clustering analysis.**
+
+## Best match analysis
+
+```{r best_match_main_text}
+
+# This chunk gives the figures cited in the main text
+
+# Concordant matches
+
+df = match_ref_noself
+N = nrow(df)
+df = df[df$species.in == df$species.out, ]
+n = nrow(df)
+p = n/N*100
+
+m = quantile(df$cci_log, .5)
+q25 = quantile(df$cci_log, .25)
+q75 = quantile(df$cci_log, .75)
+
+sprintf('%i/%i (%.1f%%) of the spectra included in the reference database matched with the same species (median log10CCI: %.1f; IQR: %.1f to %.1f)', n, N, p, m, q25, q75)
+
+# Discordant matches
+
+df = match_ref_noself
+N = nrow(df)
+df = df[df$species.in != df$species.out, ]
+n = nrow(df)
+p = n/N*100
+
+sprintf('%i/%i (%.1f%%) of the spectra included in the reference database matched with another species', n, N, p)
+
+ls = table(taxonomy$reference.identification.result[taxonomy$panel == 'reference'])
+ls = names(ls[ls == 1])
+
+df = match_ref_noself
+df = df[df$species.in != df$species.out, ]
+df1 = df[df$species.in %in% ls, ]
+df2 = df[!df$species.in %in% ls, ]
+
+n1 = nrow(df1)
+m1 = quantile(df1$cci_log, .5)
+q25.1 = quantile(df1$cci_log, .25)
+q75.1 = quantile(df1$cci_log, .75)
+
+n2 = nrow(df2)
+m2 = quantile(df2$cci_log, .5)
+q25.2 = quantile(df2$cci_log, .25)
+q75.2 = quantile(df2$cci_log, .75)
+
+sprintf('Among the mismatches, %i were spectra of species represented by only one specimen and thus not included in the queried dataset because self-matching was disabled (median log10CCI: %.1f; IQR: %.1f to %.1f), and %i were true cross-matches between two referenced species (median log10CCI: %.1f; IQR: %.1f to %.1f).', n1, m1, q25.1, q75.1, n2, m2, q25.2, q75.2)
+
+```
+
+```{r figure5_CCI_distribution, warning=F, fig.width = 8, fig.height = 4}
+
+# This chunk makes the figure showing the distribution of the log10CCI values
+# by matching category (concordant matches, true cross-matches and queries of
+# singleton species)
+
+# List species represented by only one specimen in the reference MSL
+
+ls = table(taxonomy$reference.identification.result[taxonomy$panel == 'reference'])
+ls = names(ls[ls == 1])
+
+# Subset CCI values of concordant matches, true cross-matches and queries of singleton species
+
+df = match_ref_noself
+df_concordant = df[df$species.in == df$species.out,]
+df_discordant = df[df$species.in != df$species.out,]
+df_crossmatches = df_discordant[!df_discordant$species.in %in% ls,]
+df_unreferenced = df_discordant[df_discordant$species.in %in% ls,]
+
+# Make plot
+
+par(mfrow = c(1,3), mar = c(5,4,4,2) + 0.1, las = 1, font.lab = 2, family = "Times New Roman")
+
+# Correct matches
+
+plot(NULL, xlab="", ylab="", xaxt="n", yaxt="n", xlim=c(-20, 0), ylim=c(0, 0.4),  panel.first=grid())
+polygon(density(df_concordant$cci_log), border = NA, col = alpha("grey20",0.5))
+axis(side = 1, at = seq(-20, 0, 5))
+axis(side = 2, at = seq(0, 0.4, 0.1))
+title(xlab = "log10(CCI)")
+title(ylab = 'Density')
+title(main = "Correct matches")
+
+# True cross-matches
+
+plot(NULL, xlab="", ylab="", xaxt="n", yaxt="n", xlim=c(-20, 0), ylim=c(0, 0.4),  panel.first=grid())
+polygon(density(df_discordant$cci_log), border = NA, col = alpha("grey20",0.5))
+axis(side = 1, at = seq(-20, 0, 5))
+axis(side = 2, at = seq(0, 0.4, 0.1))
+title(xlab = "log10(CCI)")
+title(ylab = 'Density')
+title(main = "True cross-matches")
+
+# Singleton species
+
+plot(NULL, xlab="", ylab="", xaxt="n", yaxt="n", xlim=c(-20, 0), ylim=c(0, 0.4),  panel.first=grid())
+polygon(density(df_unreferenced$cci_log), border = NA, col = alpha("grey20",0.5))
+axis(side = 1, at = seq(-20, 0, 5))
+axis(side = 2, at = seq(0, 0.4, 0.1))
+title(xlab = "log10(CCI)")
+title(ylab = 'Density')
+title(main = "Queries of unreferenced species")
+
+# Add panel labels
+
+mtext('A', side = 3, line = -2, outer = TRUE, font = 2, cex = 1.5, adj = 0)
+mtext('B', side = 3, line = -2, outer = TRUE, font = 2, cex = 1.5, adj = 0.33)
+mtext('C', side = 3, line = -2, outer = TRUE, font = 2, cex = 1.5, adj = 0.66)
+
+```
+
+**Figure 5. Distribution of the maximum log10CCI value collated by spectra in bank-to-bank comparison by category of result, excluding comparisons between technical replicates of the same sample.** (A) Correct matches with another specimen of the same species, (B) true cross-matches between a species referenced in the queried database and a different species, (C) species represented by only one specimen in the reference mass spectra database and therefore not included in the queried database because self-match was disabled.
+
+```{r tableS2_discordant_matches}
+
+# This chunk makes a list of the discordant matches (true-cross matches 
+# and queries of singleton species)
+
+# True cross-matches
+
+# List singleton species
+ls = table(taxonomy$reference.identification.result[taxonomy$panel == 'reference'])
+ls = names(ls[ls == 1])
+# Use the result of best match analysis with self-matching disabled as an input
+df = match_ref_noself
+# Subset discordant matches
+df = df[df$species.in != df$species.out, ]
+# Remove the queries of singelton species
+df = df[!df$species.in %in% ls, ]
+# Reorder the table
+df = df[order(df$species.in, df$sample.in, df$species.out), ]
+# Remove some columns
+df$tag = NULL
+df$cci = NULL
+# Store output as df1
+df1 = df
+# Rename variable
+names(df1)[names(df1) == 'cci_log'] = 'log10.cci'
+# Number of spectra
+temp1 = aggregate(cci_log ~ species.in + species.out, FUN = length, data = df)
+names(temp1) = c('species.in', 'species.out', 'n')
+# Median CCI
+temp2 = aggregate(cci_log ~ species.in + species.out, FUN = quantile, 0.5, data = df)
+names(temp2) = c('species.in', 'species.out', 'median')
+# First quartile
+temp3 = aggregate(cci_log ~ species.in + species.out, FUN = quantile, 0.25, data = df)
+names(temp3) = c('species.in', 'species.out', 'q25')
+# Thrid quartile
+temp4 = aggregate(cci_log ~ species.in + species.out, FUN = quantile, 0.75, data = df)
+names(temp4) = c('species.in', 'species.out', 'q75')
+# Merge temporary outputs
+df_agg = merge.data.frame(temp1, temp2, by = c('species.in', 'species.out'))
+df_agg = merge.data.frame(df_agg, temp3, by = c('species.in', 'species.out'))
+df_agg = merge.data.frame(df_agg, temp4, by = c('species.in', 'species.out'))
+df_agg = df_agg[order(df_agg$species.in, df_agg$species.out), ]
+# Display the output table
+knitr::kable(df_agg, caption = "Table 4. Distribution of CCI values in true cross-matches collated by species")
+
+# Queries of unreferenced species
+
+# list singleton species
+ls = table(taxonomy$reference.identification.result[taxonomy$panel == 'reference'])
+ls = names(ls[ls == 1])
+# Use the result of best match analysis with self-matching disabled as an input
+df = match_ref_noself
+# Subset discordant matches
+df = df[df$species.in != df$species.out, ]
+# Keep only queries of singelton species
+df = df[df$species.in %in% ls, ]
+# Reorder the table
+df = df[order(df$species.in, df$sample.in, df$species.out), ]
+# Remove some columns
+df$tag = NULL
+df$cci = NULL
+# Store output as df2
+df2 = df
+# Rename variable
+names(df2)[names(df2) == 'cci_log'] = 'log10.cci'
+# Display the results
+knitr::kable(df, caption = "Table 5. List of queries of unreferenced species.")
+# Number of spectra
+temp1 = aggregate(cci_log ~ species.in + species.out, FUN = length, data = df)
+names(temp1) = c('species.in', 'species.out', 'n')
+# Median CCI
+temp2 = aggregate(cci_log ~ species.in + species.out, FUN = quantile, 0.5, data = df)
+names(temp2) = c('species.in', 'species.out', 'median')
+# First quartile
+temp3 = aggregate(cci_log ~ species.in + species.out, FUN = quantile, 0.25, data = df)
+names(temp3) = c('species.in', 'species.out', 'q25')
+# Third quartile
+temp4 = aggregate(cci_log ~ species.in + species.out, FUN = quantile, 0.75, data = df)
+names(temp4) = c('species.in', 'species.out', 'q75')
+# Merge temporary outputs
+df_agg = merge.data.frame(temp1, temp2, by = c('species.in', 'species.out'))
+df_agg = merge.data.frame(df_agg, temp3, by = c('species.in', 'species.out'))
+df_agg = merge.data.frame(df_agg, temp4, by = c('species.in', 'species.out'))
+df_agg = df_agg[order(df_agg$species.in, df_agg$species.out), ]
+# Display the results
+knitr::kable(df_agg, caption = "Table 6. Distribution of CCI values in queries of unreferenced species collated by species.")
+
+# Bind the lists of both true cross-matches and queries of unreferenced species
+df1$matching.category = 'true cross-match'
+df2$matching.category = 'unreferenced species'
+df = rbind(df1, df2)
+
+# Save the list
+write.csv(df, file = 'tables/tableS2_discordant_matches.csv', row.names = F)
+
+```
+
+```{r tableS3_concordant_matches}
+
+# This chunk makes a table showing the distribution of the log10CCI values in
+# concordant matches collated by species.
+
+# Concordant matches
+
+# Use the result of best match analysis with self-matching disabled as an input
+df = match_ref_noself
+# Keep only the concordant matches
+df = df[df$species.in == df$species.out, ]
+# Number of samples
+temp1 = aggregate(sample.in ~ species.in, FUN = function(x)length(unique(x)), data = df)
+names(temp1) = c('species.in', 'N')
+# Number of spectra
+temp2 = aggregate(cci_log ~ species.in, FUN = length, data = df)
+names(temp2) = c('species.in', 'n')
+# Median CCI
+temp3 = aggregate(cci_log ~ species.in, FUN = quantile, 0.5, data = df)
+names(temp3) = c('species.in', 'median')
+# q25 CCI
+temp4 = aggregate(cci_log ~ species.in, FUN = quantile, 0.25, data = df)
+names(temp4) = c('species.in', 'q25')
+# q75 CCI
+temp5 = aggregate(cci_log ~ species.in, FUN = quantile, 0.75, data = df)
+names(temp5) = c('species.in', 'q75')
+# min CCI
+temp6 = aggregate(cci_log ~ species.in, FUN = quantile, 0, data = df)
+names(temp6) = c('species.in', 'min')
+# max CCI
+temp7 = aggregate(cci_log ~ species.in, FUN = quantile, 1, data = df)
+names(temp7) = c('species.in', 'max')
+# Merge temporary outputs
+df_agg = merge.data.frame(temp1, temp2, 'species.in')
+df_agg = merge.data.frame(df_agg, temp3, 'species.in')
+df_agg = merge.data.frame(df_agg, temp4, 'species.in')
+df_agg = merge.data.frame(df_agg, temp5, 'species.in')
+df_agg = merge.data.frame(df_agg, temp6, 'species.in')
+df_agg = merge.data.frame(df_agg, temp7, 'species.in')
+# Format output table
+df_agg$median = round(df_agg$median, 1)
+df_agg$iqr = paste0(round(df_agg$q25, 1), ' to ', round(df_agg$q75, 1))
+df_agg$range = paste0(round(df_agg$min, 1), ' to ', round(df_agg$max, 1))
+varsel = c('species.in', 'N', 'n', 'median', 'iqr')
+df_agg = df_agg[order(df_agg$species.in), varsel ]
+names(df_agg) = c('species', 'n.samples', 'n.spectra', 'median.log10.cci', 'iqr.log10.cci')
+
+# Save the results
+write.csv(df_agg, file = 'tables/tableS3_concordant_matches.csv', row.names = FALSE)
+
+# Display the results
+knitr::kable(df_agg, caption = "Table S3. Distribution of CCI values in concordant matches collated by species")
+
+```
+
+# Evaluation of the performances
+
+## Characteristics of the test panel
+
+```{r test_panel_main_text}
+
+# This chunk gives the figures on the test panel cited in the main text
+
+# Number of samples included in the test panel
+n1 = nrow(metadata[metadata$panel == 'test', ])
+# Number of samples in the test panel identified with PCR
+n2 = nrow(taxonomy[taxonomy$panel == 'test' & !is.na(taxonomy$reference.identification.result), ])
+# List of samples in the test panel identified with PCR
+ls1 = taxonomy$sample.id[taxonomy$panel == 'test' & !is.na(taxonomy$reference.identification.result)]
+# List of samples in the reference panel identified with PCR
+ls2 = taxonomy$sample.id[taxonomy$panel == 'reference' & !is.na(taxonomy$reference.identification.result)]
+# Use the output of CCI algorithm as an input
+df = out_cci
+# Subset comparisons between reference and test spectra
+df = df[(df$sample.in %in% ls1 & df$sample.out %in% ls2) | (df$sample.in %in% ls2 & df$sample.out %in% ls1), ]
+# Number of pairwise comparisons
+n3 = nrow(df)
+
+sprintf('%i mass spectra of the %i PCR-identified specimens included in the validation panel were queried against the reference database, yielding %i pairwise comparisons', n1, n2, n3)
+
+```
+
+## ROC curve analysis
+
+```{r roc_curve_analysis}
+
+# This chunk performs the ROC curve analysis
+
+# List unreferenced species
+
+ls1 = sort(unique(taxonomy$reference.identification.result[taxonomy$panel == 'reference']))
+ls2 = sort(unique(taxonomy$reference.identification.result[taxonomy$panel == 'test']))
+ls_taxa_unref = ls2[!ls2 %in% ls1]
+
+# Declare the range of threshold values to be assessed
+
+ls_threshold = seq(-20, 0, 0.5)
+
+# Use the output of the simulation experiment with concordant matching enabled
+# as an input for estimation of sensitivity, PPV and accuracy.
+
+out_sim = out_sim_v2b
+
+# Make an empty data frame to store the results
+
+output = data.frame()
+
+# Loop over threshold values
+
+for (i in ls_threshold) {
+  
+  # True positive (concordant matches with CCI above the threshold)
+  
+  out_sim$result[out_sim$species.in == out_sim$species.out & out_sim$cci_log >= i] = "TP"
+  
+  # False positive (mismatches with CCI above the threshold)
+  
+  out_sim$result[out_sim$species.in != out_sim$species.out & out_sim$cci_log >= i] = "FP"
+  
+  # True negative (species not referenced in the MSL with CCI below the threshold)
+  
+  out_sim$result[(out_sim$species.in %in% ls_taxa_unref) & out_sim$cci_log < i] = "TN"
+  
+  # False negative (species referenced in the MSL with CCI below the threshold)
+  
+  out_sim$result[!(out_sim$species.in %in% ls_taxa_unref) & out_sim$cci_log < i] = "FN"
+  
+  # Sensitivity
+  
+  res = tapply(out_sim$result, list(out_sim$spots, out_sim$trial), FUN = function(x)(length(x[x=="TP"]) / length(x[x=="TP" | x == "FN"])))
+  sensitivity = apply(res, 1 , median)
+  sensitivity_lower = apply(res, 1 , quantile, probs = 0.025)
+  sensitivity_upper = apply(res, 1 , quantile, probs = 0.975)
+  
+  # Positive predicitve value
+  
+  res = tapply(out_sim$result, list(out_sim$spots, out_sim$trial), FUN = function(x)(length(x[x=="TP"]) / length(x[x=="TP" | x == "FP"])))
+  ppv = apply(res, 1 , median)
+  ppv_lower = apply(res, 1 , quantile, probs = 0.025, na.rm = T)
+  ppv_upper = apply(res, 1 , quantile, probs = 0.975, na.rm = T)
+  
+  # Accuracy
+  
+  res = tapply(out_sim$result, list(out_sim$spots, out_sim$trial), FUN = function(x)(length(x[x=="TN"|x=="TP"]) / length(x)))
+  accuracy = apply(res, 1 , median)
+  accuracy_lower = apply(res, 1 , quantile, probs = 0.025)
+  accuracy_upper = apply(res, 1 , quantile, probs = 0.975)
+  
+  # Combine the results
+  
+  df = cbind(rep(i, 9), 1:9, sensitivity, sensitivity_lower, sensitivity_upper, ppv, ppv_lower, ppv_upper, accuracy, accuracy_lower, accuracy_upper)
+  
+  # Add results to output table
+  
+  output = rbind(output, df)
+  
+}
+
+# Rename variables
+
+names(output) = c("threshold", "spot", "sensitivity", "sensitivity.lower", "sensitivity.upper", "ppv", "ppv.lower", "ppv.upper", "accuracy", "accuracy.lower", "accuracy.upper")
+
+# Store output
+
+output1 = output
+
+
+# Use the output of the simulation experiment with concordant matching disabled
+# as an input for estimation of specificity.
+
+out_sim = out_sim_unref_v2b
+
+# Make an empty data frame to store the results
+
+output = data.frame()
+
+# Loop over threshold values
+
+for (i in ls_threshold) {
+  
+  # False positive (mismatches with CCI above the threshold)
+  
+  out_sim$result[out_sim$cci_log >= i] = "FP"
+  
+  # True negative (species not referenced in the MSL with CCI below the threshold)
+  
+  out_sim$result[out_sim$cci_log < i] = "TN"
+  
+  # Specificity
+  
+  res = tapply(out_sim$result, list(out_sim$spots, out_sim$trial), FUN = function(x)(length(x[x=="TN"]) / length(x[x=="TN" | x == "FP"])))
+  specificity = apply(res, 1 , median)
+  specificity_lower = apply(res, 1 , quantile, probs = 0.025)
+  specificity_upper = apply(res, 1 , quantile, probs = 0.975)
+  
+  # Accuracy
+  
+  res = tapply(out_sim$result, list(out_sim$spots, out_sim$trial), FUN = function(x)(length(x[x=="TN"|x=="TP"]) / length(x)))
+  accuracy = apply(res, 1 , median)
+  accuracy_lower = apply(res, 1 , quantile, probs = 0.025)
+  accuracy_upper = apply(res, 1 , quantile, probs = 0.975)
+  
+  # False positive rate
+  
+  res = tapply(out_sim$result, list(out_sim$spots, out_sim$trial), FUN = function(x)(length(x[x=="FP"]) / length(x[x=="FP" | x == "TN"])))
+  fpr = apply(res, 1 , median)
+  fpr_lower = apply(res, 1 , quantile, probs = 0.025)
+  fpr_upper = apply(res, 1 , quantile, probs = 0.975)
+  
+  # Combine the results
+  
+  df = cbind(rep(i, 9), 1:9, specificity, specificity_lower, specificity_upper, accuracy, accuracy_lower, accuracy_upper, fpr, fpr_lower, fpr_upper)
+  
+  # Add results to output table
+  
+  output = rbind(output, df)
+  
+}
+
+# Rename variables
+
+names(output) = c("threshold", "spot", "specificity", "specificity.lower",  "specificity.upper", "accuracy", "accuracy.lower", "accuracy.upper", "fpr", "fpr.lower", "fpr.upper")
+
+# Store output
+
+output2 = output
+
+# Combine the performance metrics of both simulation experiments
+
+output = data.frame(
+  
+  threshold = output1$threshold,
+  spot = output1$spot,
+  
+  sensitivity = output1$sensitivity,
+  sensitivity.lower = output1$sensitivity.lower,
+  sensitivity.upper = output1$sensitivity.upper,
+  
+  specificity = output2$specificity,
+  specificity.lower = output2$specificity.lower,
+  specificity.upper = output2$specificity.upper,
+  
+  ppv = output1$ppv,
+  ppv.lower = output1$ppv.lower,
+  ppv.upper = output1$ppv.upper,
+  
+  accuracy = output1$accuracy,
+  accuracy.lower = output1$accuracy.lower,
+  accuracy.upper = output1$accuracy.upper,
+  
+  fpr = output2$fpr,
+  fpr.lower = output2$fpr.lower,
+  fpr.upper = output2$fpr.upper
+  
+)
+
+```
+
+```{r tableS4_wrong_identifications}
+
+# This chunk gives the list of wrong identifications observed in the simulation
+# experiment with concordant matching enabled considering a threshold of -14
+
+# List unreferenced species
+
+ls1 = sort(unique(taxonomy$reference.identification.result[taxonomy$panel == 'reference']))
+ls2 = sort(unique(taxonomy$reference.identification.result[taxonomy$panel == 'test']))
+ls_taxa_unref = ls2[!ls2 %in% ls1]
+
+# Declare the range of threshold values to be assessed
+
+ls_threshold = seq(-20, 0, 0.5)
+
+# Use the output of the simulation experiment with concordant matching enabled
+# as an input
+
+out_sim = out_sim_v2b
+
+# True positive (concordant matches with CCI above the threshold)
+
+out_sim$result[out_sim$species.in == out_sim$species.out & out_sim$cci_log >= -14] = "TP"
+
+# False positive (mismatches with CCI above the threshold)
+
+out_sim$result[out_sim$species.in != out_sim$species.out & out_sim$cci_log >= -14] = "FP"
+
+# True negative (species not referenced in the MSL with CCI below the threshold)
+
+out_sim$result[(out_sim$species.in %in% ls_taxa_unref) & out_sim$cci_log < -14] = "TN"
+
+# False negative (species referenced in the MSL with CCI below the threshold)
+
+out_sim$result[!(out_sim$species.in %in% ls_taxa_unref) & out_sim$cci_log < -14] = "FN"
+
+# Subset false positive and false negative results
+df = out_sim[out_sim$result == 'FP' | out_sim$result == 'FN', ]
+# Remove duplicate spectra from multiple trials
+df = df[!duplicated(df$tag), ]
+# Reorder output table
+df = df[order(df$species.in, df$sample.in, df$species.out, df$sample.out, df$result), ]
+# Remove some columns
+df$tag = NULL
+df$trial = NULL
+df$spots = NULL
+df$cci = NULL
+# Rename variable
+names(df)[names(df) == 'cci_log'] = 'log10.cci'
+
+# Save the output table
+write.csv(df, file = 'tables/tableS4_wrong_identifications.csv', row.names = F)
+
+```
+
+
+```{r figure6_roc_curve, warning=F}
+
+# This chunk makes the figure of the ROC curve analysis
+
+par(mfrow = c(2,2), las = 1, family = "Times New Roman", font.lab = 2)
+
+plot_dta = output[output$spot == 1, ]
+
+plot(NULL, xlab="", ylab="", xaxt="n", yaxt="n", xlim=c(-20, -0), ylim=c(0, 1),  panel.first=grid())
+axis(side = 1, at = seq(-20, 0 , 4))
+axis(side = 2, at = seq(0,1,0.2))
+title(xlab = 'Threshold')
+title(ylab = "Sensitivity & Specificity")
+
+polygon(c(plot_dta$threshold, rev(plot_dta$threshold)), c(plot_dta$sensitivity.upper, rev(plot_dta$sensitivity.lower)), border = NA, col = alpha("grey20", 0.25))
+lines(plot_dta$sensitivity ~ plot_dta$threshold, type = "o", pch = 1, cex = 1)
+
+polygon(c(plot_dta$threshold, rev(plot_dta$threshold)), c(plot_dta$specificity.lower, rev(plot_dta$specificity.upper)), border = NA, col = alpha("grey20", 0.25))
+lines((plot_dta$specificity) ~ plot_dta$threshold, type = "o", pch = 2, cex = 1)
+
+legend("right", pch = c(1,2), lty = c(1,1), legend = c("sensitivity", "specificity"), box.lwd = 0, bg = NA)
+
+plot(NULL, xlab="", ylab="", xaxt="n", yaxt="n", xlim=c(0, 1), ylim=c(0, 1),  panel.first=grid())
+axis(side = 1, at = seq(0, 1, 0.2))
+axis(side = 2, at = seq(0,1,0.2))
+title(xlab = '1-Specificity')
+title(ylab = "Sensitivity")
+
+abline(a=0, b = 1, lty = "dashed")
+lines(plot_dta$sensitivity ~ plot_dta$fpr, type = "o", pch = 0)
+
+legend("bottomright", pch = 0, lty = 1, legend = c("ROC curve"), box.lwd = 0, bg = NA)
+
+plot_dta = output[output$spot == 4, ]
+
+plot(NULL, xlab="", ylab="", xaxt="n", yaxt="n", xlim=c(-20, 0), ylim=c(0, 1),  panel.first=grid())
+axis(side = 1, at = seq(-20, 0 , 4))
+axis(side = 2, at = seq(0,1,0.2))
+title(xlab = 'Threshold')
+title(ylab = "Sensitivity & Specificity")
+
+polygon(c(plot_dta$threshold, rev(plot_dta$threshold)), c(plot_dta$sensitivity.upper, rev(plot_dta$sensitivity.lower)), border = NA, col = alpha("grey20", 0.25))
+lines(plot_dta$sensitivity ~ plot_dta$threshold, type = "o", pch = 1, cex = 1)
+
+polygon(c(plot_dta$threshold, rev(plot_dta$threshold)), c(plot_dta$specificity.lower, rev(plot_dta$specificity.upper)), border = NA, col = alpha("grey20", 0.25))
+lines((plot_dta$specificity) ~ plot_dta$threshold, type = "o", pch = 2, cex = 1)
+
+legend("right", pch = c(1,2), lty = c(1,1), legend = c("sensitivity", "specificity"), box.lwd = 0, bg = NA)
+
+plot(NULL, xlab="", ylab="", xaxt="n", yaxt="n", xlim=c(0, 1), ylim=c(0, 1),  panel.first=grid())
+axis(side = 1, at = seq(0, 1, 0.2))
+axis(side = 2, at = seq(0,1,0.2))
+title(xlab = '1-Specificity')
+title(ylab = "Sensitivity")
+
+abline(a=0, b = 1, lty = "dashed")
+lines(plot_dta$sensitivity ~ plot_dta$fpr, type = "o", pch = 0)
+
+legend("bottomright", pch = 0, lty = 1, legend = c("ROC curve"), box.lwd = 0, bg = NA)
+
+mtext('A', side = 3, line = -2, outer = TRUE, font = 2, cex = 1.5, adj = 0)
+mtext('B', side = 3, line = -2, outer = TRUE, font = 2, cex = 1.5, adj = 0.5)
+mtext('C', side = 3, line = -26, outer = TRUE, font = 2, cex = 1.5, adj = 0)
+mtext('D', side = 3, line = -26, outer = TRUE, font = 2, cex = 1.5, adj = 0.5)
+
+```
+
+**Figure 6. Evaluation of the performance of the reference mass spectra database** for ***Anopheles*** **species identification using the test panel.** (A) Sensibility and specificity determined at varying identification threshold considering one spot per specimen, (B) corresponding receiving operator characteristics curve, (C) sensibility and specificity determined at varying identification threshold considering four spots per specimen and (D) corresponding receiving operator characteristics curve. The shaded areas in panels A and C show the 95% credible interval around the median estimate of 1000 simulations. The dashed line in panels B and D shows the performance of a random classification.
+
+```{r table_2_identification_performance}
+
+# This chunk makes a table showing the performance metrics at selected
+# threshold values and numbers of technical replicates, as was estimated
+# with the ROC curve analysis
+
+# Reformat the results of performance evaluation at varying threshold
+
+df = output
+
+# Sensitivity
+
+df$sensitivity2 = paste0(round(df$sensitivity, 2), " (", round(df$sensitivity.lower, 2), " to ", round(df$sensitivity.upper, 2), ")")
+
+# Specificity
+
+df$specificity2 = paste0(round(df$specificity, 2), " (", round(df$specificity.lower, 2), " to ", round(df$specificity.upper, 2), ")")
+
+# Predictive positive value
+
+df$ppv2 = paste0(round(df$ppv, 2), " (", round(df$ppv.lower, 2), " to ", round(df$ppv.upper, 2), ")")
+
+# # Negative predictive value
+# 
+# df$npv2 = paste0(round(df$npv, 2), " (", round(df$npv.lower, 2), "; ", round(df$npv.upper, 2), ")")
+
+# Accuracy
+
+df$accuracy2 = paste0(round(df$accuracy, 2), " (", round(df$accuracy.lower, 2), " to ", round(df$accuracy.upper, 2), ")")
+
+# Select varibales
+
+# varsel = c("threshold", "spot", "sensitivity2", "specificity2", "ppv2", "npv2", "accuracy2")
+varsel = c("threshold", "spot", "sensitivity2", "specificity2", "ppv2", "accuracy2")
+df = df[,varsel]
+
+# Save the formatted results
+
+write.csv(df, file = "tables/table2_identification_performance.csv")
+
+# Subset selected threshold values and numbers of spots 
+
+df = df[(df$threshold == -14 & df$spot == 1) |
+          (df$threshold == -14 & df$spot == 2) |
+          (df$threshold == -14 & df$spot == 4) |
+          (df$threshold == -14 & df$spot == 9) |
+          (df$threshold == -13 & df$spot == 1) |
+          (df$threshold == -13 & df$spot == 2) |
+          (df$threshold == -13 & df$spot == 4) |
+          (df$threshold == -13 & df$spot == 9) |
+          (df$threshold == -12 & df$spot == 1) |
+          (df$threshold == -12 & df$spot == 2) |
+          (df$threshold == -12 & df$spot == 4) |
+          (df$threshold == -12 & df$spot == 9) |
+          (df$threshold == -11 & df$spot == 1) |
+          (df$threshold == -11 & df$spot == 2) |
+          (df$threshold == -11 & df$spot == 4) |
+          (df$threshold == -11 & df$spot == 9) |
+          (df$threshold == -10 & df$spot == 1) |
+          (df$threshold == -10 & df$spot == 2) |
+          (df$threshold == -10 & df$spot == 4) |
+          (df$threshold == -10 & df$spot == 9), ]
+
+# Display the results
+
+knitr::kable(df, caption = "Table 2. Performance of Anopheles species identification with MALDI-TOF MS using the reference MSL.")
+
+```
+
+
