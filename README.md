@@ -1,4 +1,4 @@
-# malditof-cci
+# Identification of Southeast Asian __Anopheles__ mosquito species with matrix-assisted laser desorption/ionization time-of-flight mass spectrometry using a modified cross-correlation approach
 
 This repository provides data and code for the analysis of a study carried out to develop an open-access data analysis pipeline for the identification of _Anopheles_ mosquito species identification with matrix-assisted laser desorption/ionization time-of-flight mass spectrometry using a modified cross-correlation approach.
 

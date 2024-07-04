@@ -38,6 +38,9 @@ if(!dir.exists('tables')){dir.create("tables")}
 my_cols = brewer.pal(n = 8, 'Dark2')
 palette(brewer.pal(n = 8, 'Dark2'))
 
+#
+loadfonts(device="win")
+
 ```
 
 # Session information
@@ -555,14 +558,14 @@ axis(side = 1, at = seq(0, n_spectra_ref, 50), labels = NA)
 axis(side = 2, at = seq(-25, 0, 5), labels = c("-Inf", -20, -15, -10, -5, 0))
 axis.break(axis=2,-23,bgcol="white",breakcol="black", style="slash",brw=0.02)
 title(xlab = 'Spectrum')
-title(ylab = "log10(CCI)")
+title(ylab = "log10[CCI]")
 
 plot(NULL, xlab="", ylab="", xaxt="n", yaxt="n", xlim=c(-25, 0), ylim=c(0, 3),  panel.first=grid())
 polygon(density(reproducibility_intra$median.cci), col = alpha("grey20",0.5), border = NA)
 axis(side = 1, at = seq(-25, 0, 5), labels = c("-Inf", -20, -15, -10, -5, 0))
 axis(side = 2, at = seq(0, 3, 0.5))
 axis.break(axis=1,-23,bgcol="white",breakcol="black", style="slash",brw=0.02)
-title(xlab = "log10(CCI)")
+title(xlab = "log10[CCI]")
 title(ylab = 'Density')
 
 # Comparisons of the same species
@@ -574,14 +577,14 @@ axis(side = 1, at = seq(0, n_spectra_ref, 50), labels = NA)
 axis(side = 2, at = seq(-25, 0, 5), labels = c("-Inf", -20, -15, -10, -5, 0))
 axis.break(axis=2,-23,bgcol="white",breakcol="black", style="slash",brw=0.02)
 title(xlab = 'Spectrum')
-title(ylab = "log10(CCI)")
+title(ylab = "log10[CCI]")
 
 plot(NULL, xlab="", ylab="", xaxt="n", yaxt="n", xlim=c(-25, 0), ylim=c(0, 3),  panel.first=grid())
 polygon(density(reproducibility_inter$median.cci), col = alpha("grey20",0.5), border = NA)
 axis(side = 1, at = seq(-25, 0, 5), labels = c("-Inf", -20, -15, -10, -5, 0))
 axis(side = 2, at = seq(0, 3, 0.5))
 axis.break(axis=1,-23,bgcol="white",breakcol="black", style="slash",brw=0.02)
-title(xlab = "log10(CCI)")
+title(xlab = "log10[CCI]")
 title(ylab = 'Density')
 
 # Comparisons of the different species
@@ -592,14 +595,14 @@ axis(side = 1, at = seq(0, n_spectra_ref, 50), labels = NA)
 axis(side = 2, at = seq(-25, 0, 5), labels = c("-Inf", -20, -15, -10, -5, 0))
 axis.break(axis=2,-23,bgcol="white",breakcol="black", style="slash",brw=0.02)
 title(xlab = 'Spectrum')
-title(ylab = "log10(CCI)")
+title(ylab = "log10[CCI]")
 
 plot(NULL, xlab="", ylab="", xaxt="n", yaxt="n", xlim=c(-25, 0), ylim=c(0, 3),  panel.first=grid())
 polygon(density(reproducibility_unref$median.cci), col = alpha("grey20",0.5), border = NA)
 axis(side = 1, at = seq(-25, 0, 5), labels = c("-Inf", -20, -15, -10, -5, 0))
 axis(side = 2, at = seq(0, 3, 0.5))
 axis.break(axis=1,-23,bgcol="white",breakcol="black", style="slash",brw=0.02)
-title(xlab = "log10(CCI)")
+title(xlab = "log10[CCI]")
 title(ylab = 'Density')
 
 # Add panel labels
@@ -795,7 +798,7 @@ plot(NULL, xlab="", ylab="", xaxt="n", yaxt="n", xlim=c(-20, 0), ylim=c(0, 0.4),
 polygon(density(df_concordant$cci_log), border = NA, col = alpha("grey20",0.5))
 axis(side = 1, at = seq(-20, 0, 5))
 axis(side = 2, at = seq(0, 0.4, 0.1))
-title(xlab = "log10(CCI)")
+title(xlab = "log10[CCI]")
 title(ylab = 'Density')
 title(main = "Correct matches")
 
@@ -805,7 +808,7 @@ plot(NULL, xlab="", ylab="", xaxt="n", yaxt="n", xlim=c(-20, 0), ylim=c(0, 0.4),
 polygon(density(df_discordant$cci_log), border = NA, col = alpha("grey20",0.5))
 axis(side = 1, at = seq(-20, 0, 5))
 axis(side = 2, at = seq(0, 0.4, 0.1))
-title(xlab = "log10(CCI)")
+title(xlab = "log10[CCI]")
 title(ylab = 'Density')
 title(main = "True cross-matches")
 
@@ -815,7 +818,7 @@ plot(NULL, xlab="", ylab="", xaxt="n", yaxt="n", xlim=c(-20, 0), ylim=c(0, 0.4),
 polygon(density(df_unreferenced$cci_log), border = NA, col = alpha("grey20",0.5))
 axis(side = 1, at = seq(-20, 0, 5))
 axis(side = 2, at = seq(0, 0.4, 0.1))
-title(xlab = "log10(CCI)")
+title(xlab = "log10[CCI]")
 title(ylab = 'Density')
 title(main = "Queries of unreferenced species")
 
